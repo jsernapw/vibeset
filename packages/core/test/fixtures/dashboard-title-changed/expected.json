@@ -1,0 +1,27 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "dashboardType",
+      "key": "dashboardType",
+      "status": "identical",
+      "before": "SpecifiedUser",
+      "after": "SpecifiedUser"
+    },
+    {
+      "path": "runningUser",
+      "key": "runningUser",
+      "status": "identical",
+      "before": "admin@example.com",
+      "after": "admin@example.com"
+    },
+    {
+      "path": "title",
+      "key": "title",
+      "status": "changed",
+      "before": "Deal Overview",
+      "after": "Deal Overview (Q3)"
+    }
+  ]
+}

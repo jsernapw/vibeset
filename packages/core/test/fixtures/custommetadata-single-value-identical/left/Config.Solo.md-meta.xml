@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" fullName="Config.Solo">
+    <label>Solo</label>
+    <protected>false</protected>
+    <values>
+        <field>Timeout__c</field>
+        <value xsi:type="xsd:int" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">30</value>
+    </values>
+</CustomMetadata>

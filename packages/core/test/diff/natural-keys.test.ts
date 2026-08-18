@@ -19,6 +19,28 @@ describe('resolveCollectionKeyFields', () => {
   it('returns undefined for a tag with no table entry (generic fallback applies at the computeItemKey layer)', () => {
     expect(resolveCollectionKeyFields('CustomObject', 'totallyUnknownTag')).toBeUndefined();
   });
+
+  it('CustomMetadata overrides the generic `values` bucket entry (CustomMetadataValue.field, not PicklistValue.fullName)', () => {
+    expect(resolveCollectionKeyFields('CustomMetadata', 'values')).toEqual(['field']);
+    // The generic bucket still applies to every other root type that uses
+    // the same tag name for a genuinely different shape (RecordType /
+    // BusinessProcess picklist values) — this is the ambiguity the
+    // CustomMetadata override exists to resolve, not a blanket redefinition.
+    expect(resolveCollectionKeyFields('CustomObject', 'values')).toEqual(['fullName']);
+  });
+
+  it("ListView's `filters` (ListViewFilter.filter) is distinct from Flow's `filters` (CollectionProcessor field)", () => {
+    expect(resolveCollectionKeyFields('CustomObject', 'filters')).toEqual(['filter']);
+    expect(resolveCollectionKeyFields('Flow', 'filters')).toEqual(['field']);
+  });
+
+  it('resolves composite-key Phase 2 collections (WorkflowRule actions, PlatformActionListItem)', () => {
+    expect(resolveCollectionKeyFields('WorkflowRule', 'actions')).toEqual(['name', 'type']);
+    expect(resolveCollectionKeyFields('Layout', 'platformActionListItems')).toEqual([
+      'actionName',
+      'actionType',
+    ]);
+  });
 });
 
 describe('computeItemKey', () => {

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Report xmlns="http://soap.sforce.com/2006/04/metadata">
+    <name>Deal Summary</name>
+    <format>Summary</format>
+    <reportType>Deal__c</reportType>
+    <aggregates>
+        <developerName>TotalAmount</developerName>
+        <masterLabel>Total Amount</masterLabel>
+        <calculatedFormula>SUM(Amount__c)</calculatedFormula>
+        <datatype>currency</datatype>
+    </aggregates>
+    <aggregates>
+        <developerName>AvgAmount</developerName>
+        <masterLabel>Average Amount</masterLabel>
+        <calculatedFormula>AVG(Amount__c)</calculatedFormula>
+        <datatype>currency</datatype>
+    </aggregates>
+</Report>

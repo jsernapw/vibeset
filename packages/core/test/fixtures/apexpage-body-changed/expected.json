@@ -1,0 +1,30 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "textDiff": [
+    {
+      "added": false,
+      "removed": false,
+      "value": "<apex:page>\n",
+      "lineStart": 1
+    },
+    {
+      "added": false,
+      "removed": true,
+      "value": "    <h1>Deal Summary</h1>\n",
+      "lineStart": 2
+    },
+    {
+      "added": true,
+      "removed": false,
+      "value": "    <h1>Deal Summary (Beta)</h1>\n",
+      "lineStart": 3
+    },
+    {
+      "added": false,
+      "removed": false,
+      "value": "</apex:page>\n",
+      "lineStart": 3
+    }
+  ]
+}

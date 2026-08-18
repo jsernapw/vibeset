@@ -1,0 +1,30 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "textDiff": [
+    {
+      "added": false,
+      "removed": false,
+      "value": "<aura:component>\n    <aura:attribute name=\"dealName\" type=\"String\"/>\n",
+      "lineStart": 1
+    },
+    {
+      "added": false,
+      "removed": true,
+      "value": "    <div>{!v.dealName}</div>\n",
+      "lineStart": 3
+    },
+    {
+      "added": true,
+      "removed": false,
+      "value": "    <div class=\"dealCard\">{!v.dealName}</div>\n",
+      "lineStart": 4
+    },
+    {
+      "added": false,
+      "removed": false,
+      "value": "</aura:component>\n",
+      "lineStart": 4
+    }
+  ]
+}

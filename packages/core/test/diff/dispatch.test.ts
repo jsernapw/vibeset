@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffComponent } from '../../src/diff/dispatch.js';
+import { diffComponent, TEXT_BODY_TYPES } from '../../src/diff/dispatch.js';
 import { FULL_COVERAGE_CONTEXT, type ProfileDiffContext } from '../../src/diff/profiles.js';
 
 const withClass = (name: string, enabled = 'true') => `
@@ -82,5 +82,29 @@ describe('diffComponent — Profile/PermissionSet coverage is required, not defa
     // there is ambiguous, not a genuine removal, so the whole component
     // must not register as changed purely from that ambiguity.
     expect(result.status).toBe('identical');
+  });
+});
+
+/**
+ * EmailTemplate uses SDR's `matchingContentFile` adapter — the same
+ * body-file-plus-sidecar shape as ApexPage/ApexComponent (already
+ * TEXT_BODY_TYPES members) — so its body is opaque markup, not XML this
+ * differ should try to parse as a schema. content-reader.ts (compare/)
+ * dispatches on this exact same set, so this also controls which file
+ * (body vs -meta.xml) gets read for a comparison — see dispatch.ts's
+ * comment on the TEXT_BODY_TYPES addition for the tradeoff.
+ */
+describe('diffComponent — EmailTemplate is a text-body type', () => {
+  it('is present in TEXT_BODY_TYPES', () => {
+    expect(TEXT_BODY_TYPES.has('EmailTemplate')).toBe(true);
+  });
+
+  it('diffs an EmailTemplate body as opaque text (line diff), not as XML', () => {
+    const left = '<html><body><p>Hi</p></body></html>';
+    const right = '<html><body><p>Hi there</p></body></html>';
+    const result = diffComponent({ type: 'EmailTemplate', fullName: 'Welcome' }, left, right);
+    expect(result.status).toBe('changed');
+    expect(result.textDiff).toBeDefined();
+    expect(result.entries).toBeUndefined();
   });
 });

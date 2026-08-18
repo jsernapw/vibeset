@@ -1,0 +1,74 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "active",
+      "key": "active",
+      "status": "identical",
+      "before": "true",
+      "after": "true"
+    },
+    {
+      "path": "criteriaItems",
+      "key": "criteriaItems",
+      "status": "changed",
+      "children": [
+        {
+          "path": "criteriaItems.Deal__c.Amount__c",
+          "key": "Deal__c.Amount__c",
+          "status": "changed",
+          "children": [
+            {
+              "path": "criteriaItems.Deal__c.Amount__c.field",
+              "key": "field",
+              "status": "identical",
+              "before": "Deal__c.Amount__c",
+              "after": "Deal__c.Amount__c"
+            },
+            {
+              "path": "criteriaItems.Deal__c.Amount__c.operation",
+              "key": "operation",
+              "status": "identical",
+              "before": "greaterThan",
+              "after": "greaterThan"
+            },
+            {
+              "path": "criteriaItems.Deal__c.Amount__c.value",
+              "key": "value",
+              "status": "changed",
+              "children": [
+                {
+                  "path": "criteriaItems.Deal__c.Amount__c.value.1000",
+                  "key": "1000",
+                  "status": "deleted",
+                  "before": "1000"
+                },
+                {
+                  "path": "criteriaItems.Deal__c.Amount__c.value.5000",
+                  "key": "5000",
+                  "status": "new",
+                  "after": "5000"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "fullName",
+      "key": "fullName",
+      "status": "identical",
+      "before": "NotifyOnClose",
+      "after": "NotifyOnClose"
+    },
+    {
+      "path": "triggerType",
+      "key": "triggerType",
+      "status": "identical",
+      "before": "onCreateOrTriggeringUpdate",
+      "after": "onCreateOrTriggeringUpdate"
+    }
+  ]
+}

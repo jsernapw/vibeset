@@ -1,0 +1,32 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "description",
+      "key": "description",
+      "status": "changed",
+      "before": "Grants full access to deals.",
+      "after": "Grants full access to deals and deal line items."
+    },
+    {
+      "path": "hasActivationRequired",
+      "key": "hasActivationRequired",
+      "status": "identical",
+      "before": "false",
+      "after": "false"
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Deal Admin",
+      "after": "Deal Admin"
+    },
+    {
+      "path": "license",
+      "key": "license",
+      "status": "identical"
+    }
+  ]
+}
