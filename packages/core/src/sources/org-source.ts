@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { AuthInfo, Connection } from '@salesforce/core';
-import { ComponentSet, MetadataConverter, RegistryAccess } from '@salesforce/source-deploy-retrieve';
+import { ComponentSet, MetadataConverter, RegistryAccess, type SourceComponent } from '@salesforce/source-deploy-retrieve';
 import type {
   ComponentInventory,
   ComponentInventoryEntry,
@@ -88,6 +88,24 @@ export interface OrgHealthCheckResult {
   readonly limits?: Readonly<Record<string, { max: number; remaining: number }>>;
   readonly error?: string;
 }
+
+/**
+ * Floor and ceiling for how many components a single top-level chunk is
+ * allowed to lose to isolated retrieve/convert failures before the isolation
+ * bisection gives up and re-throws instead of continuing. The actual budget
+ * is `max(MIN_ISOLATED_FAILURES, ceil(chunkSize * MAX_ISOLATED_FAILURE_RATIO))`
+ * — proportional, not a flat count. See `OrgSource`'s
+ * `retrieveChunkWithIsolation` and `convertWithIsolation` doc comments for
+ * why (a real org, ARM DEV, has enough `StaticResource`s hitting a single
+ * shared conversion bug that a flat cap of 5 aborted a comparison that
+ * should have degraded gracefully instead), and this is still a safety
+ * valve, not "isolate forever": a genuinely systemic failure (every
+ * component failing identically — an expired session, a network outage)
+ * still blows through even a generous proportional budget and fails loudly,
+ * rather than silently mass-reporting real components as missing.
+ */
+export const MIN_ISOLATED_FAILURES = 5;
+export const MAX_ISOLATED_FAILURE_RATIO = 0.3;
 
 /**
  * Real `OrgSource` implementation over `@salesforce/core` (`AuthInfo`,
@@ -349,86 +367,39 @@ export class OrgSource implements MetadataSource {
   }
 
   /**
-   * Floor and ceiling for how many components a single top-level chunk is
-   * allowed to lose to isolated retrieve/convert failures before
-   * `retrieveChunkWithIsolation` gives up and re-throws instead of
-   * continuing to bisect. The actual budget is
-   * `max(MIN_ISOLATED_FAILURES, ceil(chunkSize * MAX_ISOLATED_FAILURE_RATIO))`
-   * — proportional, not a flat count, because a real org (ARM DEV) turned
-   * out to have a LOT of `StaticResource`s hitting this (see
-   * `retrieveChunkWithIsolation`'s doc comment for the confirmed root
-   * cause): a run against 200 `StaticResource`s hit 60+ `BadZipFile`
-   * failures — a flat cap of 5 aborted a comparison that should have
-   * degraded gracefully instead.
-   *
-   * This is still a safety valve, not "isolate forever": without SOME cap,
-   * a systemic failure (an expired session, a network outage — anything
-   * that fails EVERY component identically) would bisect all the way down
-   * and report the entire chunk as `missing` rather than as the connection
-   * failure it actually is. A `missing` entry reads downstream as "this
-   * component doesn't exist on this side" — silently mass-reporting real
-   * components as missing due to a transient outage is exactly the
-   * fabricated/misleading-data failure mode this project treats as
-   * unacceptable (see the real-org reconciliation requirement in the task
-   * brief). A genuinely systemic failure (every single component in the
-   * chunk failing) still blows through even a generous proportional budget
-   * well before reaching the bottom of the bisection and fails loudly, same
-   * as before this existed.
-   */
-  private static readonly MIN_ISOLATED_FAILURES = 5;
-  private static readonly MAX_ISOLATED_FAILURE_RATIO = 0.3;
-
-  /**
-   * `retrieveAndConvert` (real implementation: `ComponentSet.retrieve` +
-   * SDR's `MetadataConverter`) operates on its whole input as one unit —
-   * there's no per-component partial success for a CONVERSION failure the
-   * way there is for a retrieve-level "Failed" `FileResponse` (those are
-   * already handled, see `defaultRetrieveAndConvert`'s `missing` mapping).
-   *
-   * CONFIRMED ROOT CAUSE (real-org investigation against ARM DEV's
-   * `omnistudio__` managed package, not a guess): a meaningful fraction of
-   * its `StaticResource`s declare `<contentType>application/zip</contentType>`
-   * in their metadata, but the Metadata API's retrieve response for THOSE
-   * SPECIFIC resources returns the content already exploded into a
-   * directory (e.g. `staticresources/omnistudio__vkBeautify/README.md`)
-   * rather than a flat `.resource` zip file — a genuine inconsistency in
-   * how this org/package's resources were stored, reproduced with bare
-   * `ComponentSet.retrieve()` + `MetadataConverter.convert()` calls (no
-   * VibeSet orchestration involved), across both SDR 12.25.0 (the version
-   * bundled in the `sf` CLI itself) and 13.1.1 (this repo's), and
-   * independent of API version (62.0/60.0/67.0 all reproduce it) — so it
-   * is not a VibeSet bug, an SDR regression, or a stale-metadata artifact.
-   * SDR's `StaticResourceMetadataTransformer.toSourceFormat` sees the
-   * declared `application/zip` contentType, assumes the content path is a
-   * flat zip file, and calls `unzipper.Open.buffer(readFile(content))` on
-   * what's actually a directory — hence `BadZipFile` for SDR's ENTIRE
-   * conversion batch, taking every other, perfectly fine component in the
-   * same chunk down with it. With the default inventory scope now spanning
-   * ~30+ types across potentially thousands of components, a data
-   * inconsistency like this anywhere in the org shouldn't be able to take
-   * down a whole comparison — see `MIN_ISOLATED_FAILURES`/
-   * `MAX_ISOLATED_FAILURE_RATIO` above for why this needed to become a
-   * proportional budget rather than "isolate a handful and give up."
-   *
-   * Not fixed at the root (bypassing SDR's static-resource unzip entirely
-   * for these components) in this pass — that would mean re-implementing
-   * `StaticResourceMetadataTransformer`'s content resolution outside SDR,
-   * a larger and riskier change than graceful degradation justified once
-   * the safety net below was in place and verified against the real org.
-   * Flagged as follow-up work, not silently worked around.
+   * `retrieveAndConvert` operates on its whole input as one unit from this
+   * method's point of view — there's no per-component partial success for a
+   * failure thrown out of it. This bisect-and-retry loop is what's left of
+   * that isolation strategy after Phase 2 Workstream D's performance
+   * investigation (see `convertComponentsWithIsolation`'s doc comment
+   * below): it now exists ONLY as the fallback for genuine retrieve-level
+   * failures (a real `ComponentSet.retrieve()`/`pollStatus()` exception —
+   * auth expiry, a network blip, an org-side error) and for callers that
+   * inject their own `retrieveAndConvert` (tests; anything that doesn't
+   * separate retrieve from convert). It still bisects by re-invoking
+   * `retrieveAndConvert` wholesale, which means EACH bisection node is a
+   * fresh network round trip — correct and cheap when failures are rare (a
+   * real retrieve outage fails identically at every granularity, so the
+   * budget below is exhausted in a handful of calls), but see
+   * `convertComponentsWithIsolation` for why that made this THE wrong tool
+   * for the specific failure this was originally written to handle
+   * (conversion-only failures, which are local/CPU-bound and don't need a
+   * fresh network retrieve to isolate).
    *
    * On failure, bisects the chunk and retries each half recursively rather
    * than retrying every component individually — O(log n) extra
    * retrieve+convert calls to isolate a single bad component out of n,
-   * instead of n. The common case (nothing wrong) is unaffected: exactly
-   * one call, same as before this existed. A component that still fails
-   * once isolated to a batch of one is recorded in `missing` (surfaced the
-   * same way a retrieve-level failure already is) and reported via
-   * `onWarning`, instead of aborting the whole `materialize()` call — UNLESS
-   * the proportional budget (`MIN_ISOLATED_FAILURES`/
-   * `MAX_ISOLATED_FAILURE_RATIO` above) is exhausted for this top-level
-   * chunk, in which case the underlying error propagates and the whole
-   * `materialize()` call fails, same as before this existed.
+   * instead of n, PROVIDED failures are sparse (this degrades badly when
+   * they are not — see below). The common case (nothing wrong) is
+   * unaffected: exactly one call, same as before this existed. A component
+   * that still fails once isolated to a batch of one is recorded in
+   * `missing` (surfaced the same way a retrieve-level failure already is)
+   * and reported via `onWarning`, instead of aborting the whole
+   * `materialize()` call — UNLESS the proportional budget
+   * (`MIN_ISOLATED_FAILURES`/`MAX_ISOLATED_FAILURE_RATIO` above) is
+   * exhausted for this top-level chunk, in which case the underlying error
+   * propagates and the whole `materialize()` call fails, same as before
+   * this existed.
    */
   private async retrieveChunkWithIsolation(
     chunkKeys: ComponentKey[],
@@ -447,7 +418,7 @@ export class OrgSource implements MetadataSource {
     // from. See MIN_ISOLATED_FAILURES/MAX_ISOLATED_FAILURE_RATIO's doc
     // comment for why this is proportional rather than a flat count.
     budget: { remaining: number } = {
-      remaining: Math.max(OrgSource.MIN_ISOLATED_FAILURES, Math.ceil(chunkKeys.length * OrgSource.MAX_ISOLATED_FAILURE_RATIO)),
+      remaining: Math.max(MIN_ISOLATED_FAILURES, Math.ceil(chunkKeys.length * MAX_ISOLATED_FAILURE_RATIO)),
     },
   ): Promise<RetrieveAndConvertResult> {
     try {
@@ -530,20 +501,151 @@ export class OrgSource implements MetadataSource {
           reason: 'error' in fr ? fr.error : 'retrieve failed',
         }));
 
+      // Everything below this point is LOCAL (files already sit in
+      // mdapiDir from the ONE retrieve above) — see
+      // convertComponentsWithIsolation's doc comment for why conversion
+      // failures are isolated here, locally, instead of by bisecting this
+      // whole retrieveAndConvert call (which is what materialize()'s outer
+      // retrieveChunkWithIsolation used to do, and is exactly the Phase 2
+      // Workstream D root cause of the 33-type default's >13-minute run).
+      const components = [...result.components] as SourceComponent[];
       const converter = new MetadataConverter(this.registry);
-      await converter.convert(result.components, 'source', {
-        type: 'directory',
-        outputDirectory: destDir,
-        genUniqueDir: false,
-      });
+      const convertMissing = await this.convertComponentsWithIsolation(
+        components,
+        async (subset) => {
+          await converter.convert(subset, 'source', {
+            type: 'directory',
+            outputDirectory: destDir,
+            genUniqueDir: false,
+          });
+        },
+        (component) => ({ type: component.type.name, fullName: component.fullName }),
+      );
 
       const files = new Map<string, string>();
       await walkDir(destDir, destDir, files);
 
-      return { files, missing };
+      return { files, missing: [...missing, ...convertMissing] };
     } finally {
       await rm(mdapiDir, { recursive: true, force: true }).catch(() => {});
     }
+  }
+
+  /**
+   * PERFORMANCE FIX — Phase 2 Workstream D, the confirmed root cause of the
+   * 33-type default inventory's real-org comparison exceeding 13 minutes
+   * without completing.
+   *
+   * `retrieveChunkWithIsolation` (above) isolates failures by bisecting and
+   * re-invoking the WHOLE `retrieveAndConvert` — retrieve (network) AND
+   * convert (local) together — as one atomic unit. That's the right
+   * strategy for a genuine retrieve-level failure, but the StaticResource
+   * `BadZipFile` failure this was built for (see the confirmed-root-cause
+   * doc comment that used to live on `retrieveChunkWithIsolation`, still
+   * accurate: some `omnistudio__` `StaticResource`s declare
+   * `contentType: application/zip` but the Metadata API returns their
+   * content pre-exploded into a directory, so SDR's
+   * `StaticResourceMetadataTransformer` throws `BadZipFile` for the WHOLE
+   * `MetadataConverter.convert()` batch) happens ENTIRELY LOCALLY, after
+   * the network retrieve has already succeeded and every file already sits
+   * on disk in `mdapiDir`. Bisecting at the `retrieveAndConvert` level
+   * therefore re-runs a full Salesforce `ComponentSet.retrieve()` +
+   * `pollStatus()` round trip — an async job with real, non-trivial fixed
+   * latency — for every single bisection node, even though nothing about
+   * the network retrieve was ever the problem.
+   *
+   * Quantified (network-free simulation of the exact bisection algorithm,
+   * `retrieveChunkWithIsolation`'s pre-fix logic, against the real
+   * measured ARM DEV shape — 200 StaticResources, ~60-70 BadZipFile
+   * failures, i.e. ~30% failure density): bisection issues on the order of
+   * 250-270 `retrieveAndConvert` calls to resolve one chunk that should
+   * have cost 1, and in most runs EXHAUSTS the proportional failure budget
+   * partway through and re-throws, failing the whole chunk anyway. At
+   * even a conservative few seconds of fixed latency per Salesforce
+   * Retrieve+poll cycle, 250+ redundant network round trips alone accounts
+   * for minutes, before any additional delay from Salesforce-side
+   * concurrent-request throttling (the old code's bisection halves ran via
+   * unbounded `Promise.all`, which could fan out well past the configured
+   * `retrieveConcurrency`). This is what actually produced the
+   * "33-type default exceeded 13 minutes without completing" observation —
+   * not `listMetadata` batching, not retrieve chunk sizing, and not SQLite
+   * contention.
+   *
+   * The fix: isolate CONVERSION failures by bisecting the LOCAL
+   * `MetadataConverter.convert()` call over an in-memory array of
+   * already-retrieved `SourceComponent`s — no network call anywhere in
+   * this method. Bisecting a purely local, CPU/disk-bound operation 250
+   * times costs milliseconds, not minutes. `retrieveChunkWithIsolation`
+   * still exists as the fallback for actual retrieve-level failures (which
+   * remain rare and network-bound by nature, so bisecting them at the
+   * network layer is still the right, cheap strategy) and for
+   * test-injected `retrieveAndConvert` fakes that don't separate the two
+   * phases.
+   *
+   * A standalone function (not a class method) and exported, rather than
+   * private, on purpose: this bisection logic — the actual thing that
+   * needed fixing — is directly unit testable with a plain fake `convertFn`
+   * that never touches SDR, a `ComponentSet`, or a `Connection`, the same
+   * way `chunking.ts`'s `planMaterializeChunks` is tested directly rather
+   * than only indirectly through `OrgSource.materialize()`. See
+   * `test/sources/org-source.test.ts`'s `convertComponentsWithIsolation`
+   * describe block for the tests proving: (1) dense/clustered failures no
+   * longer blow up call count the way they did when isolation bisected at
+   * the retrieve level, (2) the proportional budget is still enforced
+   * (systemic failure still throws), (3) `describe`/`onWarning` wiring
+   * matches `retrieveChunkWithIsolation`'s existing behavior exactly, just
+   * relocated.
+   */
+  private convertComponentsWithIsolation<T>(
+    items: readonly T[],
+    convertFn: (items: readonly T[]) => Promise<void>,
+    describe: (item: T) => ComponentKey,
+  ): Promise<Array<{ key: ComponentKey; reason: string }>> {
+    return convertWithIsolation(items, convertFn, describe, this.label, this.deps.onWarning);
+  }
+}
+
+/** See `OrgSource.convertComponentsWithIsolation`'s doc comment — this is that method's body, extracted so it's directly unit testable. */
+export async function convertWithIsolation<T>(
+  items: readonly T[],
+  convertFn: (items: readonly T[]) => Promise<void>,
+  describe: (item: T) => ComponentKey,
+  sourceLabel: string,
+  onWarning: ((message: string) => void) | undefined,
+  budget: { remaining: number } = {
+    remaining: Math.max(
+      MIN_ISOLATED_FAILURES,
+      Math.ceil(items.length * MAX_ISOLATED_FAILURE_RATIO),
+    ),
+  },
+): Promise<Array<{ key: ComponentKey; reason: string }>> {
+  if (items.length === 0) return [];
+  try {
+    await convertFn(items);
+    return [];
+  } catch (err) {
+    if (items.length === 1) {
+      const key = describe(items[0]!);
+      if (budget.remaining <= 0) {
+        throw err; // exhausted the tolerance for isolated failures — treat as systemic, fail loud.
+      }
+      budget.remaining -= 1;
+      onWarning?.(
+        `Convert failed for ${key.type} "${key.fullName}" from ${sourceLabel}: ${(err as Error).message}. ` +
+          `Treating this one component as missing rather than failing every other component in the same ` +
+          `conversion batch (isolated locally — no additional retrieve was needed).`,
+      );
+      return [{ key, reason: (err as Error).message }];
+    }
+
+    // Sequential, not `Promise.all`: this is local CPU/disk work now, not
+    // network calls, so there's no latency to hide behind concurrency — and
+    // sequential avoids two halves converting into the same `destDir` at
+    // the same time for no benefit.
+    const mid = Math.floor(items.length / 2);
+    const missingA = await convertWithIsolation(items.slice(0, mid), convertFn, describe, sourceLabel, onWarning, budget);
+    const missingB = await convertWithIsolation(items.slice(mid), convertFn, describe, sourceLabel, onWarning, budget);
+    return [...missingA, ...missingB];
   }
 }
 
