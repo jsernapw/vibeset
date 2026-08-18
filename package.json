@@ -17,7 +17,10 @@
     "dev": "turbo run dev",
     "lint": "oxlint .",
     "format": "prettier --write .",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "perf": "pnpm --filter @vibeset/server run perf:real-org && pnpm --filter @vibeset/server run perf:synthetic",
+    "perf:real-org": "pnpm --filter @vibeset/server run perf:real-org",
+    "perf:synthetic": "pnpm --filter @vibeset/server run perf:synthetic"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

@@ -16,7 +16,9 @@
     "dev": "tsx watch src/dev.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "perf:real-org": "tsx test/perf/real-org-harness.ts",
+    "perf:synthetic": "tsx test/perf/synthetic-harness.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",
@@ -34,6 +36,8 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@salesforce/core": "^9.1.2",
+    "@salesforce/source-deploy-retrieve": "^13.1.1",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "drizzle-kit": "^0.30.0",
