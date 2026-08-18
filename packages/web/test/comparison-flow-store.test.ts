@@ -27,6 +27,21 @@ describe('comparison-flow-store (wizard state preserved across Back/Forward)', (
     expect(useComparisonFlowStore.getState().selectedTypes).toEqual(['ApexClass', 'Flow']);
   });
 
+  it('typesInitialized starts false, so the types step knows to apply the curated default on first load', () => {
+    expect(useComparisonFlowStore.getState().typesInitialized).toBe(false);
+  });
+
+  it('setSelectedTypes marks typesInitialized true, even when clearing to an empty selection', () => {
+    useComparisonFlowStore.getState().setSelectedTypes(['ApexClass']);
+    expect(useComparisonFlowStore.getState().typesInitialized).toBe(true);
+
+    // A deliberate "Clear all" must NOT read as "never touched" — otherwise
+    // the default would silently reapply itself on the next visit.
+    useComparisonFlowStore.getState().setSelectedTypes([]);
+    expect(useComparisonFlowStore.getState().selectedTypes).toEqual([]);
+    expect(useComparisonFlowStore.getState().typesInitialized).toBe(true);
+  });
+
   it('setComparisonId resets deployOptions to defaults only when it is actually a different comparison', () => {
     useComparisonFlowStore.getState().setComparisonId('cmp-1');
     useComparisonFlowStore.getState().setDeployOptions({ packageName: 'custom-pkg', checkOnly: false });
@@ -70,6 +85,7 @@ describe('comparison-flow-store (wizard state preserved across Back/Forward)', (
     expect(state.leftId).toBeUndefined();
     expect(state.rightId).toBeUndefined();
     expect(state.selectedTypes).toEqual([]);
+    expect(state.typesInitialized).toBe(false);
     expect(state.comparisonId).toBeUndefined();
     expect(state.deploymentId).toBeUndefined();
     expect(state.deployOptions.checkOnly).toBe(true);

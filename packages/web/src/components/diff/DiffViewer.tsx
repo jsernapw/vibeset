@@ -7,16 +7,21 @@ import { useComponentContent } from '@/lib/adapters/comparisons';
 import { LazyMonacoDiff } from './LazyMonacoDiff';
 import { SemanticTreeDiff } from './SemanticTreeDiff';
 import { PermissionGrid } from './PermissionGrid';
+import { BinaryDiffSummary } from './BinaryDiffSummary';
 
 function shortSha(sha?: string): string | undefined {
   return sha ? sha.slice(0, 10) : undefined;
 }
 
 /**
- * Routes a single `DiffResult` to the right renderer: Monaco `DiffEditor`
- * for opaque code bodies (Apex/LWC/Aura/VF), the dedicated grid for
- * Profiles/PermissionSets, and the collapsible semantic tree for every
- * other decomposable XML type.
+ * Routes a single `DiffResult` to the right renderer: `result.binary` (set
+ * by `@vibeset/core`'s `diffBinaryComponent` for StaticResource/Document —
+ * compared by content hash, never text/structure) FIRST and unconditionally,
+ * before either of the type-name-based checks below, because feeding
+ * arbitrary bytes to Monaco or the XML tree diff would render garbage, not
+ * just the wrong renderer. Then Monaco `DiffEditor` for opaque code bodies
+ * (Apex/LWC/Aura/VF), the dedicated grid for Profiles/PermissionSets, and
+ * the collapsible semantic tree for every other decomposable XML type.
  */
 export function DiffViewer({
   result,
@@ -34,7 +39,9 @@ export function DiffViewer({
   // Real retrieved body content, resolved from the content-addressed snapshot
   // store. Only fetched for the opaque code types Monaco renders; the XML
   // types are diffed structurally from `result.entries` and need no bodies.
-  const wantsBody = !!result && isTextDiffType(result.key.type);
+  // Binary results never want THIS fetch — `BinaryDiffSummary` below does
+  // its own (sizing-only) content fetch when it's the active branch.
+  const wantsBody = !!result && !result.binary && isTextDiffType(result.key.type);
   const content = useComponentContent(comparisonId, wantsBody ? result.key : undefined);
 
   if (!result) {
@@ -73,7 +80,9 @@ export function DiffViewer({
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {isPermissionGridType(result.key.type) ? (
+        {result.binary ? (
+          <BinaryDiffSummary result={result} leftLabel={leftLabel} rightLabel={rightLabel} comparisonId={comparisonId} />
+        ) : isPermissionGridType(result.key.type) ? (
           <PermissionGrid entries={result.entries} selected={gridSelected} onToggle={toggle} onToggleMany={toggleMany} />
         ) : isTextDiffType(result.key.type) ? (
           content.isPending ? (

@@ -50,6 +50,35 @@ export function useSourceOptions() {
   return { options, isLoading: query.isPending, error: query.error };
 }
 
+export interface AvailableTypesData {
+  /** Every metadata type name SDR's `RegistryAccess` can resolve (~418), sorted. */
+  readonly all: string[];
+  /** The curated ~33-type subset a comparison uses when no explicit filter is given — see `sources/registry.ts`'s `DEFAULT_INVENTORY_TYPES` doc comment in `@vibeset/core`. */
+  readonly default: string[];
+}
+
+/**
+ * Backs the "Select metadata types" step's picker (`TypeFilterPanel`) with
+ * `inventory.availableTypes` — pure registry data, no connection required,
+ * so this loads independently of which sources were chosen. Replaces the
+ * old hardcoded `PHASE1_METADATA_TYPES` list (`lib/metadata-types.ts`),
+ * which drifted from what the diff/retrieval engines actually support the
+ * moment either one grew past Phase 1's original 11 types.
+ */
+export function useAvailableTypes() {
+  const query = trpc.inventory.availableTypes.useQuery(undefined, {
+    // Registry data is static for the life of the server process — no
+    // reason to refetch on every window focus like a live org query would.
+    staleTime: Infinity,
+  });
+  return {
+    data: query.data as AvailableTypesData | undefined,
+    isLoading: query.isPending,
+    error: query.error,
+    refetch: query.refetch,
+  };
+}
+
 export interface ComparisonResultData {
   readonly comparisonId: string;
   readonly leftLabel: string;
@@ -224,6 +253,18 @@ export function useComparisonResult(comparisonId: string | undefined): Compariso
             rightSha256: r.rightSha256 ?? undefined,
             entries: r.entries,
             textDiff: r.textDiff,
+            // `DiffResult.binary` (`@vibeset/core`) is read defensively here
+            // rather than as `r.binary` directly: as of this change,
+            // `toResultRow`/`diff_results` in `@vibeset/server` don't
+            // persist or serve it yet (the row-mapping in
+            // `createCompareJobHandler` drops it, and there's no `binary`
+            // column on `diff_results`), even though `ComparisonEngine`
+            // already sets it in-memory for `StaticResource`/`Document`.
+            // This cast means the UI's binary branch (`DiffViewer.tsx`)
+            // lights up the moment that server-side gap is closed, with no
+            // further change needed on this side — see this session's PR
+            // body for the exact fix required.
+            binary: (r as { binary?: boolean }).binary,
           });
         }
         if (page.length < RESULTS_PAGE_SIZE) break;
