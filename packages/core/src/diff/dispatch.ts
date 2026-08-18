@@ -26,6 +26,15 @@ const TEXT_BODY_TYPES: ReadonlySet<string> = new Set([
   'ApexComponent',
   'AuraDefinition',
   'LightningComponentResource',
+  // EmailTemplate uses SDR's `matchingContentFile` adapter — the exact same
+  // "body file + sidecar -meta.xml" shape as ApexPage/ApexComponent above
+  // (verified via the registry's `strategies.adapter`, not guessed): the
+  // template body (.email/.txt/.html) is opaque markup, not a schema this
+  // differ should try to parse as XML. Same tradeoff already accepted for
+  // ApexPage/ApexComponent applies here too: the -meta.xml sidecar (folder,
+  // subject, description, apiVersion, ...) is not diffed by this dispatch —
+  // see content-reader.ts, which picks body-vs-xml per this same set.
+  'EmailTemplate',
 ]);
 
 const PROFILE_LIKE_TYPES: ReadonlySet<string> = new Set(['Profile', 'PermissionSet']);

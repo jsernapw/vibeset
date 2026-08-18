@@ -109,6 +109,106 @@ export const NATURAL_KEYS: Record<string, Record<string, CollectionKeyRule>> = {
     reportTypes: rule('name'),
     quickActions: rule('name'),
     flowDefinitions: rule('fullName'),
+
+    // Phase 2 additions below. Verified against the real Salesforce Metadata
+    // API WSDL/XSD (salesforce_metadata_api_common.xsd, shipped with the
+    // Salesforce Extension Pack for VS Code) rather than guessed from
+    // memory — RegistryAccess doesn't expose element-level identity fields
+    // (see file header), and getting one of these wrong silently degrades
+    // to the safe content-hash fallback rather than mismatching, but a
+    // right answer gives real item-level diffs instead of delete+add noise.
+
+    // RecordType.picklistValues.values AND BusinessProcess.values — both
+    // are `PicklistValue[]` (extends `GlobalPicklistValue` extends
+    // `Metadata`), keyed by the inherited `fullName`. NOT the same as
+    // CustomMetadata's own `values` tag, which is a different, unrelated
+    // shape (`CustomMetadataValue`, keyed by `field`) — see the
+    // `CustomMetadata`-specific override bucket below for that collision.
+    values: rule('fullName'),
+
+    // CustomObject.fieldSets — FieldSetItem, keyed by the field API name.
+    displayedFields: rule('field'),
+    availableFields: rule('field'),
+
+    // CustomObject.listViews.filters — ListViewFilter's own field is
+    // literally named `<filter>` (not `<field>`; verified against the XSD,
+    // easy to get wrong from memory). Distinct from Flow's own `filters`
+    // override below (CollectionProcessor filter, keyed by `field`) — same
+    // tag name, different type-scoped meaning, which is exactly the
+    // ambiguity this table is designed to disambiguate by root type.
+    filters: rule('filter'),
+
+    // WorkflowRule.criteriaItems — FilterItem, keyed by `field`.
+    criteriaItems: rule('field'),
+    // WorkflowRule.actions — WorkflowActionReference (the XSD types this
+    // element as bare `xsd:string` at the choice-group level, but its own
+    // `<xsd:appinfo>` documents the real runtime shape as
+    // `WorkflowActionReference[]`, i.e. `{name, type}` pairs referencing an
+    // action of a given kind). Composite key: two different action kinds
+    // can legitimately share a `name` (e.g. a FieldUpdate and a Task both
+    // named "Notify").
+    actions: rule('name', 'type'),
+
+    // GlobalValueSet.customValue / StandardValueSet.standardValue — both
+    // `CustomValue`-shaped (`StandardValue extends CustomValue`), keyed by
+    // the inherited `fullName`.
+    customValue: rule('fullName'),
+    standardValue: rule('fullName'),
+
+    // NamedCredential.namedCredentialParameters (the newer External
+    // Credential-based NamedCredential shape) — no single field is
+    // documented as unique, so a composite of name+kind is used
+    // defensively (e.g. two "Header" parameters could share a name in
+    // theory; the pair should not).
+    namedCredentialParameters: rule('parameterName', 'parameterType'),
+
+    // ConnectedApp.ipRanges — ConnectedAppIpRange has no identity field of
+    // its own; the (start, end) pair is what actually identifies a range.
+    ipRanges: rule('start', 'end'),
+
+    // Profile/PermissionSet Agentforce agent access grid — same
+    // retrieve-pairing shape as the rest of the permission grid, but the
+    // top-level ambiguity handling lives in profiles.ts's own
+    // PERMISSION_COLLECTIONS table; this entry only matters if this
+    // collection is ever reached through the generic differ instead (e.g.
+    // a fixture diffing a bare fragment).
+    agentAccesses: rule('agentName'),
+
+    // QuickAction.fieldOverrides — FieldOverride, keyed by field. (Already
+    // resolvable via GENERIC_KEY_CANDIDATES, which includes 'field'; kept
+    // explicit here for discoverability since QuickAction is a Phase 2
+    // priority type.)
+    fieldOverrides: rule('field'),
+
+    // Layout/CustomApplication PlatformActionList.platformActionListItems —
+    // PlatformActionListItem has no single unique field; (actionName,
+    // actionType) together identify one action's slot in the list.
+    platformActionListItems: rule('actionName', 'actionType'),
+
+    // Report — ReportAggregate keyed by its own developer name;
+    // ReportAggregateFilter keyed by the aggregate it filters.
+    // ReportColumn.field IS present (and 'field' happens to also be in
+    // GENERIC_KEY_CANDIDATES), kept explicit for the same reason as above.
+    // NOTE: ReportFilterItem (Report.filter.criteriaItems) and
+    // ReportCrossFilter have no reliably unique field and are deliberately
+    // left untabled — they degrade to the safe content-hash fallback
+    // rather than risk a wrong guess.
+    aggregates: rule('developerName'),
+    aggregateFilters: rule('aggregate'),
+    columns: rule('field'), // Report.columns (ReportColumn); ListView.columns is a plain string list and bypasses this (see computeItemKey's scalar short-circuit).
+  },
+
+  /**
+   * CustomMetadata (`.md-meta.xml` records) reuses the `values` tag for a
+   * completely different shape than RecordType/BusinessProcess's picklist
+   * `values` (see the `'*'` bucket above): here each `<values>` element is a
+   * `CustomMetadataValue` — one field/value pair per custom field on the
+   * record — keyed by `field`, the field's own API name. This is the same
+   * kind of same-tag-different-meaning collision Flow's `fields` override
+   * exists to handle.
+   */
+  CustomMetadata: {
+    values: rule('field'),
   },
 
   // Flow: element collections are keyed by `<name>`, not `<fullName>`, and
