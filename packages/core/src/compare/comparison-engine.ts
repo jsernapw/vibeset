@@ -116,11 +116,20 @@ export class ComparisonEngine {
       const tree = await source.materialize(chunkKeys);
       try {
         const resolved = await resolveComponentContents(tree, chunkKeys, this.registry);
+        // Collect this chunk's puts and write them in one `putMany()` call
+        // rather than awaiting `store.put()` per component — each unbounded
+        // `put()` commits (and fsyncs) its own SQLite transaction, measured
+        // at Phase 2 Workstream D as ~5x slower per row than the already-
+        // batched `diffResults` write. `putMany()` wraps the whole chunk in
+        // a single transaction instead. Chunk granularity (not "all chunks
+        // in one transaction") keeps a single very long transaction from
+        // holding the SQLite write lock across an entire materialize run.
+        const toPut: { sourceId: string; key: ComponentKey; lastModifiedDate: string; content: string; orgId?: string }[] = [];
         for (const [ks, raw] of resolved) {
           contents.set(ks, raw);
           const entry = dateByKey.get(ks);
           if (entry && !entry.lastModifiedDateUnknown) {
-            await this.store.put({
+            toPut.push({
               sourceId: source.id,
               key: entry.key,
               lastModifiedDate: entry.lastModifiedDate,
@@ -129,6 +138,7 @@ export class ComparisonEngine {
             });
           }
         }
+        if (toPut.length > 0) await this.store.putMany(toPut);
       } finally {
         await cleanupSourceTree(tree);
       }
