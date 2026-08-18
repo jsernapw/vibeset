@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WorkflowAlert xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>NotifyOwner</fullName>
+    <description>Notify the record owner</description>
+    <protected>false</protected>
+    <recipients>
+        <field>Owner</field>
+        <type>owner</type>
+    </recipients>
+    <recipients>
+        <field>Manager</field>
+        <type>manager</type>
+    </recipients>
+    <senderType>OrgWideEmailAddress</senderType>
+    <template>Deal_Closed</template>
+</WorkflowAlert>

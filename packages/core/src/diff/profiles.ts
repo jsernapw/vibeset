@@ -121,6 +121,35 @@ const PERMISSION_COLLECTIONS: readonly PermissionCollectionSpec[] = [
   { tag: 'layoutAssignments', identityField: 'layout', refType: 'Layout' },
 ];
 
+/**
+ * Non-ambiguous top-level scalar properties of a Profile/PermissionSet
+ * itself — NOT a reference into another retrieved component's permission
+ * grid. Phase 1's `diffProfileLike` only ever walked `PERMISSION_COLLECTIONS`
+ * (the reference-carrying grid this file exists to protect); these plain
+ * fields were never diffed at all, so e.g. a `description` or `userLicense`
+ * edit was silently invisible — exactly the "stripping something meaningful"
+ * failure mode the brief warns against, just via omission instead of an
+ * explicit strip. Safe to diff unconditionally regardless of retrieve-pairing
+ * coverage, because — unlike `fieldPermissions`/`classAccesses`/etc. — these
+ * fields are always serialized in full on any retrieve of the
+ * Profile/PermissionSet itself; nothing else needs to have been co-retrieved
+ * for them to be populated.
+ *
+ * Deliberately narrow: only fields verified (against the real Metadata API
+ * XSD) to have NO reference-ambiguity hazard belong here. Fields that
+ * reference another metadata component (`loginFlows`, `loginIpRanges`,
+ * `categoryGroupVisibilities`, `profileActionOverrides`, `agentAccesses`, …)
+ * would need the same retrieve-pairing treatment as the rest of the grid —
+ * composite keys and/or coverage-aware absence handling `diffOnePermissionCollection`
+ * doesn't support today — and are left for follow-up rather than guessed at
+ * here. `fullName` is excluded: it's the component's own identity (already
+ * carried by the caller's `ComponentKey`), not a diffable property.
+ */
+const ALWAYS_DIFFED_SCALAR_FIELDS: Record<ProfileLikeType, readonly string[]> = {
+  Profile: ['description', 'custom', 'userLicense'],
+  PermissionSet: ['description', 'hasActivationRequired', 'label', 'license'],
+};
+
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
@@ -273,7 +302,14 @@ export function diffProfileLike(
       ? {}
       : unwrapRoot(stripVolatileAndSort(type, '', parseXml(right)) as Record<string, unknown>);
 
-  return PERMISSION_COLLECTIONS.map((spec) =>
+  const scalarEntries: DiffEntry[] = ALWAYS_DIFFED_SCALAR_FIELDS[type].map((field) => {
+    const l = unwrapCdata(leftRoot[field]);
+    const r = unwrapCdata(rightRoot[field]);
+    const status: DiffStatus = deepEqual(l, r) ? 'identical' : 'changed';
+    return { path: field, key: field, status, before: l, after: r };
+  });
+
+  const gridEntries = PERMISSION_COLLECTIONS.map((spec) =>
     diffOnePermissionCollection(
       '',
       spec,
@@ -282,4 +318,6 @@ export function diffProfileLike(
       ctx,
     ),
   ).filter((entry) => entry.children && entry.children.length > 0);
+
+  return [...scalarEntries, ...gridEntries];
 }

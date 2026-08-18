@@ -3,6 +3,28 @@
   "hashesEqual": false,
   "entries": [
     {
+      "path": "description",
+      "key": "description",
+      "status": "identical"
+    },
+    {
+      "path": "hasActivationRequired",
+      "key": "hasActivationRequired",
+      "status": "identical"
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "My Perm Set",
+      "after": "My Perm Set"
+    },
+    {
+      "path": "license",
+      "key": "license",
+      "status": "identical"
+    },
+    {
       "path": "tabSettings",
       "key": "tabSettings",
       "status": "changed",

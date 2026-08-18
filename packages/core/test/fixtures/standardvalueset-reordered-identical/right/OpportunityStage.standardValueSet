@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<StandardValueSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <sorted>false</sorted>
+    <standardValue>
+        <fullName>Closed Won</fullName>
+        <default>false</default>
+        <probability>100</probability>
+    </standardValue>
+    <standardValue>
+        <fullName>Prospecting</fullName>
+        <default>true</default>
+        <probability>10</probability>
+    </standardValue>
+</StandardValueSet>

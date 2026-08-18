@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ConnectedApp xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>Mobile App</label>
+    <contactEmail>admin@example.com</contactEmail>
+    <ipRanges>
+        <description>Office</description>
+        <start>203.0.113.0</start>
+        <end>203.0.113.255</end>
+    </ipRanges>
+    <ipRanges>
+        <description>VPN</description>
+        <start>198.51.100.0</start>
+        <end>198.51.100.255</end>
+    </ipRanges>
+</ConnectedApp>

@@ -1,0 +1,4 @@
+<aura:component>
+    <aura:attribute name="dealName" type="String"/>
+    <div>{!v.dealName}</div>
+</aura:component>

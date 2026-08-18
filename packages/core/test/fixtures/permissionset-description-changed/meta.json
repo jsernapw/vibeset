@@ -1,0 +1,7 @@
+{
+  "type": "PermissionSet",
+  "profileContext": {
+    "left": { "mode": "full" },
+    "right": { "mode": "full" }
+  }
+}

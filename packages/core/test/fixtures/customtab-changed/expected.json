@@ -1,0 +1,27 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "icon",
+      "key": "icon",
+      "status": "identical",
+      "before": "/servlet/servlet.FileDownload",
+      "after": "/servlet/servlet.FileDownload"
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Deals",
+      "after": "Deals"
+    },
+    {
+      "path": "motif",
+      "key": "motif",
+      "status": "changed",
+      "before": "Custom27: Airplane",
+      "after": "Custom57: Suitcase"
+    }
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Default",
+      "after": "Default"
+    },
+    {
+      "path": "protected",
+      "key": "protected",
+      "status": "identical",
+      "before": "false",
+      "after": "false"
+    },
+    {
+      "path": "values",
+      "key": "values",
+      "status": "changed",
+      "children": [
+        {
+          "path": "values.Endpoint__c",
+          "key": "Endpoint__c",
+          "status": "identical",
+          "before": {
+            "field": "Endpoint__c",
+            "value": [
+              {
+                "#text": "https://api.example.com",
+                "@_xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
+                "@_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                "@_xsi:type": "xsd:string"
+              }
+            ]
+          },
+          "after": {
+            "field": "Endpoint__c",
+            "value": [
+              {
+                "#text": "https://api.example.com",
+                "@_xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
+                "@_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                "@_xsi:type": "xsd:string"
+              }
+            ]
+          }
+        },
+        {
+          "path": "values.Timeout__c",
+          "key": "Timeout__c",
+          "status": "changed",
+          "children": [
+            {
+              "path": "values.Timeout__c.field",
+              "key": "field",
+              "status": "identical",
+              "before": "Timeout__c",
+              "after": "Timeout__c"
+            },
+            {
+              "path": "values.Timeout__c.value",
+              "key": "value",
+              "status": "changed",
+              "children": [
+                {
+                  "path": "values.Timeout__c.value.~426e2803e44e",
+                  "key": "~426e2803e44e",
+                  "status": "new",
+                  "after": {
+                    "#text": "60",
+                    "@_xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
+                    "@_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "@_xsi:type": "xsd:int"
+                  }
+                },
+                {
+                  "path": "values.Timeout__c.value.~f1a6cd850df3",
+                  "key": "~f1a6cd850df3",
+                  "status": "deleted",
+                  "before": {
+                    "#text": "30",
+                    "@_xmlns:xsd": "http://www.w3.org/2001/XMLSchema",
+                    "@_xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "@_xsi:type": "xsd:int"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

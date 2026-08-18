@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WorkflowRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>NotifyOnClose</fullName>
+    <active>true</active>
+    <triggerType>onCreateOrTriggeringUpdate</triggerType>
+    <criteriaItems>
+        <field>Deal__c.Stage__c</field>
+        <operation>equals</operation>
+        <value>Closed Won</value>
+    </criteriaItems>
+    <criteriaItems>
+        <field>Deal__c.Amount__c</field>
+        <operation>greaterThan</operation>
+        <value>1000</value>
+    </criteriaItems>
+    <actions>
+        <name>NotifyOwner</name>
+        <type>Alert</type>
+    </actions>
+    <actions>
+        <name>SetStatus</name>
+        <type>FieldUpdate</type>
+    </actions>
+</WorkflowRule>

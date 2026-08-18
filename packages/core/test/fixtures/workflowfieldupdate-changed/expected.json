@@ -1,0 +1,41 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "field",
+      "key": "field",
+      "status": "identical",
+      "before": "Status__c",
+      "after": "Status__c"
+    },
+    {
+      "path": "fullName",
+      "key": "fullName",
+      "status": "identical",
+      "before": "SetStatus",
+      "after": "SetStatus"
+    },
+    {
+      "path": "literalValue",
+      "key": "literalValue",
+      "status": "changed",
+      "before": "Closed",
+      "after": "Closed Won"
+    },
+    {
+      "path": "notifyAssignee",
+      "key": "notifyAssignee",
+      "status": "identical",
+      "before": "false",
+      "after": "false"
+    },
+    {
+      "path": "operation",
+      "key": "operation",
+      "status": "identical",
+      "before": "Literal",
+      "after": "Literal"
+    }
+  ]
+}

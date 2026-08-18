@@ -82,6 +82,28 @@ describe('diffProfileLike — absent-vs-removed handling', () => {
     ]);
   });
 
+  it('diffs non-ambiguous scalar Profile fields (description, custom, userLicense) — previously silently invisible', () => {
+    const left = `<?xml version="1.0" encoding="UTF-8"?>\n<Profile xmlns="http://soap.sforce.com/2006/04/metadata"><description>Old</description><custom>true</custom><userLicense>Salesforce</userLicense></Profile>\n`;
+    const right = `<?xml version="1.0" encoding="UTF-8"?>\n<Profile xmlns="http://soap.sforce.com/2006/04/metadata"><description>New</description><custom>true</custom><userLicense>Salesforce</userLicense></Profile>\n`;
+    const entries = diffProfileLike('Profile', left, right, FULL_COVERAGE_CONTEXT);
+    const description = entries.find((e) => e.key === 'description')!;
+    expect(description).toEqual(
+      expect.objectContaining({ status: 'changed', before: 'Old', after: 'New' }),
+    );
+    const userLicense = entries.find((e) => e.key === 'userLicense')!;
+    expect(userLicense.status).toBe('identical');
+  });
+
+  it('diffs non-ambiguous scalar PermissionSet fields (description, label, license, hasActivationRequired)', () => {
+    const left = `<?xml version="1.0" encoding="UTF-8"?>\n<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata"><label>Old Label</label></PermissionSet>\n`;
+    const right = `<?xml version="1.0" encoding="UTF-8"?>\n<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata"><label>New Label</label></PermissionSet>\n`;
+    const entries = diffProfileLike('PermissionSet', left, right, FULL_COVERAGE_CONTEXT);
+    const label = entries.find((e) => e.key === 'label')!;
+    expect(label).toEqual(
+      expect.objectContaining({ status: 'changed', before: 'Old Label', after: 'New Label' }),
+    );
+  });
+
   it('produces a full addressable grid including identical entries, not just deltas', () => {
     const left = profileXml(withClass('A'), withClass('B'));
     const right = profileXml(withClass('A'), withClass('B', 'false'));

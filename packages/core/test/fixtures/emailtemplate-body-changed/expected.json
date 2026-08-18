@@ -1,0 +1,30 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "textDiff": [
+    {
+      "added": false,
+      "removed": false,
+      "value": "<html>\n  <body>\n    <p>Hi {!Recipient.FirstName},</p>\n",
+      "lineStart": 1
+    },
+    {
+      "added": false,
+      "removed": true,
+      "value": "    <p>Your deal has closed.</p>\n",
+      "lineStart": 4
+    },
+    {
+      "added": true,
+      "removed": false,
+      "value": "    <p>Congratulations, your deal has closed successfully!</p>\n",
+      "lineStart": 5
+    },
+    {
+      "added": false,
+      "removed": false,
+      "value": "  </body>\n</html>\n",
+      "lineStart": 5
+    }
+  ]
+}

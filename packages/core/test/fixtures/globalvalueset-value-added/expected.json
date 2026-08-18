@@ -1,0 +1,67 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "customValue",
+      "key": "customValue",
+      "status": "changed",
+      "children": [
+        {
+          "path": "customValue.East",
+          "key": "East",
+          "status": "identical",
+          "before": {
+            "default": "true",
+            "fullName": "East",
+            "label": "East"
+          },
+          "after": {
+            "default": "true",
+            "fullName": "East",
+            "label": "East"
+          }
+        },
+        {
+          "path": "customValue.North",
+          "key": "North",
+          "status": "new",
+          "after": {
+            "default": "false",
+            "fullName": "North",
+            "label": "North"
+          }
+        },
+        {
+          "path": "customValue.West",
+          "key": "West",
+          "status": "identical",
+          "before": {
+            "default": "false",
+            "fullName": "West",
+            "label": "West"
+          },
+          "after": {
+            "default": "false",
+            "fullName": "West",
+            "label": "West"
+          }
+        }
+      ]
+    },
+    {
+      "path": "masterLabel",
+      "key": "masterLabel",
+      "status": "identical",
+      "before": "Region",
+      "after": "Region"
+    },
+    {
+      "path": "sorted",
+      "key": "sorted",
+      "status": "identical",
+      "before": "false",
+      "after": "false"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "disableProtocolSecurity",
+      "key": "disableProtocolSecurity",
+      "status": "identical",
+      "before": "false",
+      "after": "false"
+    },
+    {
+      "path": "isActive",
+      "key": "isActive",
+      "status": "identical",
+      "before": "true",
+      "after": "true"
+    },
+    {
+      "path": "url",
+      "key": "url",
+      "status": "changed",
+      "before": "https://staging.billing.example.com",
+      "after": "https://billing.example.com"
+    }
+  ]
+}

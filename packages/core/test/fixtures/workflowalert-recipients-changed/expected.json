@@ -1,0 +1,70 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "description",
+      "key": "description",
+      "status": "identical",
+      "before": "Notify the record owner",
+      "after": "Notify the record owner"
+    },
+    {
+      "path": "fullName",
+      "key": "fullName",
+      "status": "identical",
+      "before": "NotifyOwner",
+      "after": "NotifyOwner"
+    },
+    {
+      "path": "protected",
+      "key": "protected",
+      "status": "identical",
+      "before": "false",
+      "after": "false"
+    },
+    {
+      "path": "recipients",
+      "key": "recipients",
+      "status": "changed",
+      "children": [
+        {
+          "path": "recipients.Manager",
+          "key": "Manager",
+          "status": "new",
+          "after": {
+            "field": "Manager",
+            "type": "manager"
+          }
+        },
+        {
+          "path": "recipients.Owner",
+          "key": "Owner",
+          "status": "identical",
+          "before": {
+            "field": "Owner",
+            "type": "owner"
+          },
+          "after": {
+            "field": "Owner",
+            "type": "owner"
+          }
+        }
+      ]
+    },
+    {
+      "path": "senderType",
+      "key": "senderType",
+      "status": "identical",
+      "before": "OrgWideEmailAddress",
+      "after": "OrgWideEmailAddress"
+    },
+    {
+      "path": "template",
+      "key": "template",
+      "status": "identical",
+      "before": "Deal_Closed",
+      "after": "Deal_Closed"
+    }
+  ]
+}

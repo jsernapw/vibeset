@@ -3,6 +3,21 @@
   "hashesEqual": false,
   "entries": [
     {
+      "path": "description",
+      "key": "description",
+      "status": "identical"
+    },
+    {
+      "path": "custom",
+      "key": "custom",
+      "status": "identical"
+    },
+    {
+      "path": "userLicense",
+      "key": "userLicense",
+      "status": "identical"
+    },
+    {
       "path": "classAccesses",
       "key": "classAccesses",
       "status": "changed",

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<QuickAction xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>Update Deal</label>
+    <type>Update</type>
+    <targetObject>Deal__c</targetObject>
+    <fieldOverrides>
+        <field>Stage__c</field>
+        <literalValue>Closed Won</literalValue>
+    </fieldOverrides>
+    <fieldOverrides>
+        <field>Amount__c</field>
+        <formula>0</formula>
+    </fieldOverrides>
+</QuickAction>

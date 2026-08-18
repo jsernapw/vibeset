@@ -1,0 +1,27 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "cacheControl",
+      "key": "cacheControl",
+      "status": "changed",
+      "before": "Private",
+      "after": "Public"
+    },
+    {
+      "path": "contentType",
+      "key": "contentType",
+      "status": "identical",
+      "before": "text/css",
+      "after": "text/css"
+    },
+    {
+      "path": "description",
+      "key": "description",
+      "status": "identical",
+      "before": "Styles for the deal component.",
+      "after": "Styles for the deal component."
+    }
+  ]
+}

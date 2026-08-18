@@ -1,0 +1,98 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Deal",
+      "after": "Deal"
+    },
+    {
+      "path": "recordTypes",
+      "key": "recordTypes",
+      "status": "changed",
+      "children": [
+        {
+          "path": "recordTypes.Standard",
+          "key": "Standard",
+          "status": "changed",
+          "children": [
+            {
+              "path": "recordTypes.Standard.active",
+              "key": "active",
+              "status": "identical",
+              "before": "true",
+              "after": "true"
+            },
+            {
+              "path": "recordTypes.Standard.fullName",
+              "key": "fullName",
+              "status": "identical",
+              "before": "Standard",
+              "after": "Standard"
+            },
+            {
+              "path": "recordTypes.Standard.label",
+              "key": "label",
+              "status": "identical",
+              "before": "Standard",
+              "after": "Standard"
+            },
+            {
+              "path": "recordTypes.Standard.picklistValues",
+              "key": "picklistValues",
+              "status": "changed",
+              "children": [
+                {
+                  "path": "recordTypes.Standard.picklistValues.Stage__c",
+                  "key": "Stage__c",
+                  "status": "changed",
+                  "children": [
+                    {
+                      "path": "recordTypes.Standard.picklistValues.Stage__c.picklist",
+                      "key": "picklist",
+                      "status": "identical",
+                      "before": "Stage__c",
+                      "after": "Stage__c"
+                    },
+                    {
+                      "path": "recordTypes.Standard.picklistValues.Stage__c.values",
+                      "key": "values",
+                      "status": "changed",
+                      "children": [
+                        {
+                          "path": "recordTypes.Standard.picklistValues.Stage__c.values.Retail",
+                          "key": "Retail",
+                          "status": "identical",
+                          "before": {
+                            "default": "true",
+                            "fullName": "Retail"
+                          },
+                          "after": {
+                            "default": "true",
+                            "fullName": "Retail"
+                          }
+                        },
+                        {
+                          "path": "recordTypes.Standard.picklistValues.Stage__c.values.Tech",
+                          "key": "Tech",
+                          "status": "new",
+                          "after": {
+                            "default": "false",
+                            "fullName": "Tech"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
