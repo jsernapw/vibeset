@@ -9,6 +9,8 @@ import { diffComponent } from '../diff/dispatch.js';
 import type { ProfileDiffContext } from '../diff/profiles.js';
 import { componentKeyString } from '../util/component-key.js';
 import { canonicalizeByType } from '../util/canonicalize-dispatch.js';
+import { BINARY_BODY_TYPES } from '../util/binary-content.js';
+import { sha256Hex } from '../hash.js';
 import { cleanupSourceTree, resolveComponentContents } from './content-reader.js';
 import { buildSideCoverageContext, coverageForProfileLike } from './coverage.js';
 
@@ -184,6 +186,18 @@ export class ComparisonEngine {
       const left = leftKeys.has(ks) ? await this.resolveContent(ks, leftFresh, leftSha) : undefined;
       const right = rightKeys.has(ks) ? await this.resolveContent(ks, rightFresh, rightSha) : undefined;
 
+      // Binary-bodied types (StaticResource, Document) never go through
+      // `diffComponent` — that dispatch's non-text-body branch assumes XML
+      // and would either throw or produce a meaningless parse of arbitrary
+      // bytes. `resolveComponentContents` already encoded these as a
+      // stable, order-independent string (see `util/binary-content.ts`), so
+      // "diffing" them is exactly a hash comparison — see
+      // `diffBinaryComponent` below.
+      if (BINARY_BODY_TYPES.has(key.type)) {
+        results.push(diffBinaryComponent(key, left, right));
+        continue;
+      }
+
       const profileContext: ProfileDiffContext | undefined = PROFILE_LIKE_TYPES.has(key.type)
         ? {
             left: coverageForProfileLike(leftCoverage, key),
@@ -210,4 +224,36 @@ export class ComparisonEngine {
     }
     return undefined;
   }
+}
+
+/**
+ * The binary-type counterpart to `diff/dispatch.ts`'s `diffComponent`:
+ * same four-way new/deleted/changed/identical status derivation, but by
+ * content-hash equality rather than a semantic tree or line diff, since
+ * `left`/`right` here are `encodeBinaryContent`'s opaque encoding (base64
+ * body + metadata sidecar), not something a differ can meaningfully render
+ * hunks or entries for. `binary: true` is the signal the UI needs to
+ * render "binary content changed" instead of attempting a tree/line diff —
+ * see the doc comment on `DiffResult.binary`.
+ */
+function diffBinaryComponent(key: ComponentKey, left: string | undefined, right: string | undefined): DiffResult {
+  if (left === undefined && right === undefined) {
+    return { key, status: 'identical', binary: true };
+  }
+  if (left !== undefined && right === undefined) {
+    return { key, status: 'deleted', binary: true, leftSha256: sha256Hex(left) };
+  }
+  if (left === undefined && right !== undefined) {
+    return { key, status: 'new', binary: true, rightSha256: sha256Hex(right) };
+  }
+
+  const leftSha256 = sha256Hex(left as string);
+  const rightSha256 = sha256Hex(right as string);
+  return {
+    key,
+    status: leftSha256 === rightSha256 ? 'identical' : 'changed',
+    binary: true,
+    leftSha256,
+    rightSha256,
+  };
 }

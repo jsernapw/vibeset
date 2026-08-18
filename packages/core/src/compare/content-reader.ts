@@ -4,6 +4,7 @@ import type { ComponentKey, SourceTree } from '../types/metadata-source.js';
 import { TEXT_BODY_TYPES } from '../diff/dispatch.js';
 import { flattenComponents } from '../sources/flatten-components.js';
 import { componentKeyString } from '../util/component-key.js';
+import { BINARY_BODY_TYPES, encodeBinaryContent } from '../util/binary-content.js';
 
 /**
  * Resolves a materialized `SourceTree` (the output of any `MetadataSource`'s
@@ -27,6 +28,14 @@ import { componentKeyString } from '../util/component-key.js';
  * a comparison cares about is the body file only, matching how those types
  * are actually diffed; for everything else it's the component's metadata
  * XML file.
+ *
+ * `BINARY_BODY_TYPES` (`StaticResource`, `Document`) are a third case,
+ * handled separately from both of the above: their body file is arbitrary
+ * bytes, not text, so it's read as a `Buffer` (never `utf8`, which would
+ * corrupt it) and combined with the `-meta.xml` sidecar into the stable
+ * encoded form `encodeBinaryContent` defines. `comparison-engine.ts`
+ * recognizes that encoding and compares these components by content hash
+ * instead of routing them through the XML/text differ.
  */
 export async function resolveComponentContents(
   tree: SourceTree,
@@ -47,6 +56,13 @@ export async function resolveComponentContents(
   for (const key of keys) {
     const component = byKey.get(componentKeyString(key));
     if (!component) continue; // not resolved (missing/failed retrieve) — caller treats as absent
+
+    if (BINARY_BODY_TYPES.has(key.type)) {
+      const encoded = await readBinaryComponentContent(component);
+      if (encoded !== undefined) out.set(componentKeyString(key), encoded);
+      continue;
+    }
+
     const path = TEXT_BODY_TYPES.has(key.type) ? component.content : component.xml;
     if (!path) continue;
     try {
@@ -57,6 +73,29 @@ export async function resolveComponentContents(
   }
 
   return out;
+}
+
+/**
+ * Reads a binary-bodied component's body file as raw bytes (base64-encoded
+ * for safe storage in the string-keyed content map) plus its `-meta.xml`
+ * sidecar as text, and combines them via `encodeBinaryContent`. Either half
+ * may legitimately be absent (a chunk that only touched the sidecar, or a
+ * resolver quirk); both missing means the component didn't actually
+ * resolve, matching the "treat as absent" behavior above for every other
+ * type.
+ */
+async function readBinaryComponentContent(component: SourceComponent): Promise<string | undefined> {
+  const bodyPath = component.content;
+  const metaPath = component.xml;
+  if (!bodyPath && !metaPath) return undefined;
+
+  const [bodyBuf, metaXml] = await Promise.all([
+    bodyPath ? readFile(bodyPath).catch(() => undefined) : Promise.resolve(undefined),
+    metaPath ? readFile(metaPath, 'utf8').catch(() => undefined) : Promise.resolve(undefined),
+  ]);
+  if (bodyBuf === undefined && metaXml === undefined) return undefined;
+
+  return encodeBinaryContent(bodyBuf ? bodyBuf.toString('base64') : '', metaXml ?? '');
 }
 
 /** Best-effort cleanup of a materialized `SourceTree`'s temp directory. Safe to call with an empty `rootDir` (the zero-keys case every `MetadataSource.materialize([])` returns). */
