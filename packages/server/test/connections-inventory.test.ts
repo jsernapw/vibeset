@@ -128,4 +128,14 @@ describe('inventory router', () => {
     expect(job.status).toBe('failed');
     expect(job.error).toMatch(/No connection with id/);
   });
+
+  it('availableTypes returns the curated default as a subset of the full registry-driven type list, with no connection required', async () => {
+    const { all, default: curated } = await trpcQuery('inventory.availableTypes', {});
+    expect(Array.isArray(all)).toBe(true);
+    expect(Array.isArray(curated)).toBe(true);
+    expect(all.length).toBeGreaterThan(curated.length);
+    for (const t of curated) expect(all).toContain(t);
+    expect(curated).toContain('ApexClass');
+    expect(curated).toContain('StaticResource'); // the binary-content fix's type
+  });
 });
