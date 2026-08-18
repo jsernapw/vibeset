@@ -115,10 +115,13 @@ async function main(): Promise<void> {
     console.log(`Warm: ${(warmReport.totalWallMs / 1000).toFixed(2)}s, ${warmReport.cache?.hitRatePercent}% cache hit rate`);
     console.log(`Speedup (cold / warm): ${speedup.toFixed(2)}x`);
     const target = 3 * 60 * 1000;
-    console.log(
-      `Target: 50,000 components under 3 minutes WARM. This run: ${COUNT} components, warm = ${(warmReport.totalWallMs / 1000).toFixed(1)}s ` +
-        `(${warmReport.totalWallMs <= target && COUNT >= 50_000 ? 'MEETS' : COUNT < 50_000 ? 'not at target scale' : 'MISSES'} the target as measured).`,
-    );
+    const verdict =
+      COUNT < 50_000
+        ? 'not at target scale (50,000) — see JSON report for extrapolation only, not a substitute for the full-scale run'
+        : warmReport.totalWallMs <= target
+          ? 'MEETS the 3-minute warm target, as measured'
+          : 'MISSES the 3-minute warm target, as measured';
+    console.log(`Target: 50,000 components under 3 minutes WARM. This run: ${COUNT} components, warm = ${(warmReport.totalWallMs / 1000).toFixed(1)}s (${verdict}).`);
 
     writeJsonReport(join(OUTPUT_DIR, `synthetic-${Date.now()}.json`), {
       componentCountPerSide: COUNT,

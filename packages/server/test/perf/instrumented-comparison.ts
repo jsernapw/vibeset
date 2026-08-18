@@ -108,18 +108,31 @@ async function planSide(
 ): Promise<SourceRetrievalPlan> {
   let inventoryStart = 0;
   let cachePlanningStart = 0;
+  let inventoryDone = false;
+  let cachePlanningDone = false;
   return planner.planSource(source, {
     filter,
     chunking,
     onProgress: (p) => {
       const now = performance.now();
-      if (p.percent === 0) {
+      // Disambiguate by MESSAGE, not percent: `planSource`'s own cache-check
+      // loop can coincidentally emit percent===40 again at i=0 (its formula
+      // is `40 + round(i/total*40)`, which is exactly 40 when i===0) — the
+      // same percent `planSource` uses for its real "inventory done, now
+      // checking cache" transition. Percent alone is ambiguous whenever the
+      // very first inventoried entry is a fresh miss; the message text
+      // ("Inventoried N...checking cache" vs. "Checked cache for i/N...")
+      // is not. Each transition is also guarded to fire exactly once, since
+      // `planSource` may reach percent 40 or 100 more than once in principle.
+      if (!inventoryDone && p.percent === 0) {
         inventoryStart = now;
-      } else if (p.percent === 40) {
+      } else if (!inventoryDone && p.message.startsWith('Inventoried ')) {
         timer.add('inventory', now - inventoryStart);
         cachePlanningStart = now;
-      } else if (p.percent === 100) {
+        inventoryDone = true;
+      } else if (inventoryDone && !cachePlanningDone && p.percent === 100) {
         timer.add('cachePlanning', now - cachePlanningStart);
+        cachePlanningDone = true;
       }
     },
   });
