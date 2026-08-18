@@ -354,12 +354,12 @@ export class OrgSource implements MetadataSource {
    * `retrieveChunkWithIsolation` gives up and re-throws instead of
    * continuing to bisect. The actual budget is
    * `max(MIN_ISOLATED_FAILURES, ceil(chunkSize * MAX_ISOLATED_FAILURE_RATIO))`
-   * — proportional, not a flat count, because real managed packages turned
-   * out to genuinely ship a non-trivial NUMBER of independently-corrupt
-   * `StaticResource`s: a first real-org run against ARM DEV's `omnistudio__`
-   * package (200 StaticResources) hit 6 distinct `BadZipFile` failures
-   * across 6 different resources before a flat cap of 5 aborted a
-   * comparison that should have succeeded with those 6 legitimately missing.
+   * — proportional, not a flat count, because a real org (ARM DEV) turned
+   * out to have a LOT of `StaticResource`s hitting this (see
+   * `retrieveChunkWithIsolation`'s doc comment for the confirmed root
+   * cause): a run against 200 `StaticResource`s hit 60+ `BadZipFile`
+   * failures — a flat cap of 5 aborted a comparison that should have
+   * degraded gracefully instead.
    *
    * This is still a safety valve, not "isolate forever": without SOME cap,
    * a systemic failure (an expired session, a network outage — anything
@@ -384,14 +384,38 @@ export class OrgSource implements MetadataSource {
    * there's no per-component partial success for a CONVERSION failure the
    * way there is for a retrieve-level "Failed" `FileResponse` (those are
    * already handled, see `defaultRetrieveAndConvert`'s `missing` mapping).
-   * Observed against a real org: one `StaticResource` whose declared
-   * `contentType` claims `application/zip` but whose actual retrieved
-   * bytes aren't a valid zip throws `BadZipFile` for SDR's ENTIRE
-   * conversion batch — every other, perfectly fine component in the same
-   * chunk would otherwise fail right along with it, and with the default
-   * inventory scope now spanning ~30+ types across potentially thousands
-   * of components, one quirky legacy resource anywhere in the org
-   * shouldn't be able to take down a whole comparison.
+   *
+   * CONFIRMED ROOT CAUSE (real-org investigation against ARM DEV's
+   * `omnistudio__` managed package, not a guess): a meaningful fraction of
+   * its `StaticResource`s declare `<contentType>application/zip</contentType>`
+   * in their metadata, but the Metadata API's retrieve response for THOSE
+   * SPECIFIC resources returns the content already exploded into a
+   * directory (e.g. `staticresources/omnistudio__vkBeautify/README.md`)
+   * rather than a flat `.resource` zip file — a genuine inconsistency in
+   * how this org/package's resources were stored, reproduced with bare
+   * `ComponentSet.retrieve()` + `MetadataConverter.convert()` calls (no
+   * VibeSet orchestration involved), across both SDR 12.25.0 (the version
+   * bundled in the `sf` CLI itself) and 13.1.1 (this repo's), and
+   * independent of API version (62.0/60.0/67.0 all reproduce it) — so it
+   * is not a VibeSet bug, an SDR regression, or a stale-metadata artifact.
+   * SDR's `StaticResourceMetadataTransformer.toSourceFormat` sees the
+   * declared `application/zip` contentType, assumes the content path is a
+   * flat zip file, and calls `unzipper.Open.buffer(readFile(content))` on
+   * what's actually a directory — hence `BadZipFile` for SDR's ENTIRE
+   * conversion batch, taking every other, perfectly fine component in the
+   * same chunk down with it. With the default inventory scope now spanning
+   * ~30+ types across potentially thousands of components, a data
+   * inconsistency like this anywhere in the org shouldn't be able to take
+   * down a whole comparison — see `MIN_ISOLATED_FAILURES`/
+   * `MAX_ISOLATED_FAILURE_RATIO` above for why this needed to become a
+   * proportional budget rather than "isolate a handful and give up."
+   *
+   * Not fixed at the root (bypassing SDR's static-resource unzip entirely
+   * for these components) in this pass — that would mean re-implementing
+   * `StaticResourceMetadataTransformer`'s content resolution outside SDR,
+   * a larger and riskier change than graceful degradation justified once
+   * the safety net below was in place and verified against the real org.
+   * Flagged as follow-up work, not silently worked around.
    *
    * On failure, bisects the chunk and retries each half recursively rather
    * than retrying every component individually — O(log n) extra
