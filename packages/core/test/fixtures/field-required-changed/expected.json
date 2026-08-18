@@ -1,0 +1,55 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "fields",
+      "key": "fields",
+      "status": "changed",
+      "children": [
+        {
+          "path": "fields.My_Field__c",
+          "key": "My_Field__c",
+          "status": "changed",
+          "children": [
+            {
+              "path": "fields.My_Field__c.fullName",
+              "key": "fullName",
+              "status": "identical",
+              "before": "My_Field__c",
+              "after": "My_Field__c"
+            },
+            {
+              "path": "fields.My_Field__c.length",
+              "key": "length",
+              "status": "identical",
+              "before": "255",
+              "after": "255"
+            },
+            {
+              "path": "fields.My_Field__c.required",
+              "key": "required",
+              "status": "changed",
+              "before": "false",
+              "after": "true"
+            },
+            {
+              "path": "fields.My_Field__c.type",
+              "key": "type",
+              "status": "identical",
+              "before": "Text",
+              "after": "Text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Test Three",
+      "after": "Test Three"
+    }
+  ]
+}

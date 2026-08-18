@@ -1,0 +1,24 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "textDiff": [
+    {
+      "added": false,
+      "removed": false,
+      "value": "public class MyClass {\n    public Integer add(Integer a, Integer b) {\n",
+      "lineStart": 1
+    },
+    {
+      "added": true,
+      "removed": false,
+      "value": "        // now with logging\n        System.debug('adding');\n",
+      "lineStart": 3
+    },
+    {
+      "added": false,
+      "removed": false,
+      "value": "        return a + b;\n    }\n\n    public Integer multiply(Integer a, Integer b) {\n        return a * b;\n    }\n}\n",
+      "lineStart": 3
+    }
+  ]
+}

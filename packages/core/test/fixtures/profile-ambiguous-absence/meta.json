@@ -1,0 +1,7 @@
+{
+  "type": "Profile",
+  "profileContext": {
+    "left": { "mode": "full" },
+    "right": { "mode": "scoped", "retrievedComponents": ["ApexClass:ClassB"] }
+  }
+}

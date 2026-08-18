@@ -1,0 +1,1 @@
+ALTER TABLE `deployment_packages` ADD `rollback_of_deployment_id` text;

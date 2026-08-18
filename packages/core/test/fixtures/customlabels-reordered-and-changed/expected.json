@@ -1,0 +1,99 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "labels",
+      "key": "labels",
+      "status": "changed",
+      "children": [
+        {
+          "path": "labels.Farewell",
+          "key": "Farewell",
+          "status": "changed",
+          "children": [
+            {
+              "path": "labels.Farewell.categories",
+              "key": "categories",
+              "status": "identical",
+              "before": "UI",
+              "after": "UI"
+            },
+            {
+              "path": "labels.Farewell.fullName",
+              "key": "fullName",
+              "status": "identical",
+              "before": "Farewell",
+              "after": "Farewell"
+            },
+            {
+              "path": "labels.Farewell.language",
+              "key": "language",
+              "status": "identical",
+              "before": "en_US",
+              "after": "en_US"
+            },
+            {
+              "path": "labels.Farewell.protected",
+              "key": "protected",
+              "status": "identical",
+              "before": "false",
+              "after": "false"
+            },
+            {
+              "path": "labels.Farewell.shortDescription",
+              "key": "shortDescription",
+              "status": "identical",
+              "before": "Farewell",
+              "after": "Farewell"
+            },
+            {
+              "path": "labels.Farewell.value",
+              "key": "value",
+              "status": "changed",
+              "children": [
+                {
+                  "path": "labels.Farewell.value.Goodbye",
+                  "key": "Goodbye",
+                  "status": "deleted",
+                  "before": "Goodbye"
+                },
+                {
+                  "path": "labels.Farewell.value.See you later",
+                  "key": "See you later",
+                  "status": "new",
+                  "after": "See you later"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": "labels.Greeting",
+          "key": "Greeting",
+          "status": "identical",
+          "before": {
+            "categories": "UI",
+            "fullName": "Greeting",
+            "language": "en_US",
+            "protected": "false",
+            "shortDescription": "Greeting",
+            "value": [
+              "Hello"
+            ]
+          },
+          "after": {
+            "categories": "UI",
+            "fullName": "Greeting",
+            "language": "en_US",
+            "protected": "false",
+            "shortDescription": "Greeting",
+            "value": [
+              "Hello"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "layoutSections",
+      "key": "layoutSections",
+      "status": "changed",
+      "children": [
+        {
+          "path": "layoutSections.Information",
+          "key": "Information",
+          "status": "changed",
+          "children": [
+            {
+              "path": "layoutSections.Information.label",
+              "key": "label",
+              "status": "identical",
+              "before": "Information",
+              "after": "Information"
+            },
+            {
+              "path": "layoutSections.Information.layoutColumns",
+              "key": "layoutColumns",
+              "status": "changed",
+              "children": [
+                {
+                  "path": "layoutSections.Information.layoutColumns.layoutItems",
+                  "key": "layoutItems",
+                  "status": "changed",
+                  "children": [
+                    {
+                      "path": "layoutSections.Information.layoutColumns.layoutItems.Custom_Field__c",
+                      "key": "Custom_Field__c",
+                      "status": "changed",
+                      "children": [
+                        {
+                          "path": "layoutSections.Information.layoutColumns.layoutItems.Custom_Field__c.behavior",
+                          "key": "behavior",
+                          "status": "changed",
+                          "before": "Edit",
+                          "after": "Required"
+                        },
+                        {
+                          "path": "layoutSections.Information.layoutColumns.layoutItems.Custom_Field__c.field",
+                          "key": "field",
+                          "status": "identical",
+                          "before": "Custom_Field__c",
+                          "after": "Custom_Field__c"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

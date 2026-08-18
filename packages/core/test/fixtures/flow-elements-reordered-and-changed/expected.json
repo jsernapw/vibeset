@@ -1,0 +1,94 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "assignments",
+      "key": "assignments",
+      "status": "changed",
+      "children": [
+        {
+          "path": "assignments.Set_Status",
+          "key": "Set_Status",
+          "status": "changed",
+          "children": [
+            {
+              "path": "assignments.Set_Status.label",
+              "key": "label",
+              "status": "changed",
+              "before": "Set Status",
+              "after": "Set Status Value"
+            },
+            {
+              "path": "assignments.Set_Status.name",
+              "key": "name",
+              "status": "identical",
+              "before": "Set_Status",
+              "after": "Set_Status"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "decisions",
+      "key": "decisions",
+      "status": "identical",
+      "children": [
+        {
+          "path": "decisions.Check_Amount",
+          "key": "Check_Amount",
+          "status": "identical",
+          "before": {
+            "defaultConnector": {
+              "targetReference": "End"
+            },
+            "label": "Check Amount",
+            "name": "Check_Amount"
+          },
+          "after": {
+            "defaultConnector": {
+              "targetReference": "End"
+            },
+            "label": "Check Amount",
+            "name": "Check_Amount"
+          }
+        }
+      ]
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "My Flow",
+      "after": "My Flow"
+    },
+    {
+      "path": "status",
+      "key": "status",
+      "status": "identical",
+      "before": "Active",
+      "after": "Active"
+    },
+    {
+      "path": "variables",
+      "key": "variables",
+      "status": "identical",
+      "children": [
+        {
+          "path": "variables.amount",
+          "key": "amount",
+          "status": "identical",
+          "before": {
+            "dataType": "Currency",
+            "name": "amount"
+          },
+          "after": {
+            "dataType": "Currency",
+            "name": "amount"
+          }
+        }
+      ]
+    }
+  ]
+}

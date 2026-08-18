@@ -1,0 +1,48 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "fields",
+      "key": "fields",
+      "status": "changed",
+      "children": [
+        {
+          "path": "fields.Formula__c",
+          "key": "Formula__c",
+          "status": "changed",
+          "children": [
+            {
+              "path": "fields.Formula__c.description",
+              "key": "description",
+              "status": "changed",
+              "before": "Version one",
+              "after": "Version two"
+            },
+            {
+              "path": "fields.Formula__c.fullName",
+              "key": "fullName",
+              "status": "identical",
+              "before": "Formula__c",
+              "after": "Formula__c"
+            },
+            {
+              "path": "fields.Formula__c.type",
+              "key": "type",
+              "status": "identical",
+              "before": "Text",
+              "after": "Text"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Cdata2",
+      "after": "Cdata2"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "fields",
+      "key": "fields",
+      "status": "changed",
+      "children": [
+        {
+          "path": "fields.Doomed__c",
+          "key": "Doomed__c",
+          "status": "deleted",
+          "before": {
+            "fullName": "Doomed__c",
+            "type": "Text"
+          }
+        },
+        {
+          "path": "fields.Keep__c",
+          "key": "Keep__c",
+          "status": "identical",
+          "before": {
+            "fullName": "Keep__c",
+            "type": "Text"
+          },
+          "after": {
+            "fullName": "Keep__c",
+            "type": "Text"
+          }
+        }
+      ]
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Test Five",
+      "after": "Test Five"
+    }
+  ]
+}

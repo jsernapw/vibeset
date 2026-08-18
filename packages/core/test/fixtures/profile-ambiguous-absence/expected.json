@@ -1,0 +1,39 @@
+{
+  "status": "identical",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "classAccesses",
+      "key": "classAccesses",
+      "status": "identical",
+      "children": [
+        {
+          "path": "classAccesses.ClassA",
+          "key": "ClassA",
+          "status": "identical",
+          "before": {
+            "apexClass": "ClassA",
+            "enabled": "true"
+          },
+          "after": {
+            "apexClass": "ClassA",
+            "enabled": "true"
+          }
+        },
+        {
+          "path": "classAccesses.ClassB",
+          "key": "ClassB",
+          "status": "identical",
+          "before": {
+            "apexClass": "ClassB",
+            "enabled": "true"
+          },
+          "after": {
+            "apexClass": "ClassB",
+            "enabled": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

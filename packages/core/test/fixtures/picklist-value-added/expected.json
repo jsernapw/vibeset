@@ -1,0 +1,87 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "fields",
+      "key": "fields",
+      "status": "changed",
+      "children": [
+        {
+          "path": "fields.Status__c",
+          "key": "Status__c",
+          "status": "changed",
+          "children": [
+            {
+              "path": "fields.Status__c.fullName",
+              "key": "fullName",
+              "status": "identical",
+              "before": "Status__c",
+              "after": "Status__c"
+            },
+            {
+              "path": "fields.Status__c.type",
+              "key": "type",
+              "status": "identical",
+              "before": "Picklist",
+              "after": "Picklist"
+            },
+            {
+              "path": "fields.Status__c.valueSet",
+              "key": "valueSet",
+              "status": "changed",
+              "children": [
+                {
+                  "path": "fields.Status__c.valueSet.valueSetDefinition",
+                  "key": "valueSetDefinition",
+                  "status": "changed",
+                  "children": [
+                    {
+                      "path": "fields.Status__c.valueSet.valueSetDefinition.value",
+                      "key": "value",
+                      "status": "changed",
+                      "children": [
+                        {
+                          "path": "fields.Status__c.valueSet.valueSetDefinition.value.Cancelled",
+                          "key": "Cancelled",
+                          "status": "new",
+                          "after": {
+                            "default": "false",
+                            "fullName": "Cancelled",
+                            "label": "Cancelled"
+                          }
+                        },
+                        {
+                          "path": "fields.Status__c.valueSet.valueSetDefinition.value.New",
+                          "key": "New",
+                          "status": "identical",
+                          "before": {
+                            "default": "true",
+                            "fullName": "New",
+                            "label": "New"
+                          },
+                          "after": {
+                            "default": "true",
+                            "fullName": "New",
+                            "label": "New"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Test Seven",
+      "after": "Test Seven"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fields>
+        <fullName>Gamma__c</fullName>
+        <defaultValue>false</defaultValue>
+        <type>Checkbox</type>
+    </fields>
+    <pluralLabel>Test Objects</pluralLabel>
+    <fields>
+        <fullName>Beta__c</fullName>
+        <precision>18</precision>
+        <required>true</required>
+        <scale>0</scale>
+        <type>Number</type>
+    </fields>
+    <fields>
+        <fullName>Alpha__c</fullName>
+        <required>false</required>
+        <type>Text</type>
+    </fields>
+    <label>Test Object</label>
+</CustomObject>

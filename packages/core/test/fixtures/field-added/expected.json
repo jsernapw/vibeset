@@ -1,0 +1,43 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "fields",
+      "key": "fields",
+      "status": "changed",
+      "children": [
+        {
+          "path": "fields.Brand_New__c",
+          "key": "Brand_New__c",
+          "status": "new",
+          "after": {
+            "defaultValue": "false",
+            "fullName": "Brand_New__c",
+            "type": "Checkbox"
+          }
+        },
+        {
+          "path": "fields.Existing__c",
+          "key": "Existing__c",
+          "status": "identical",
+          "before": {
+            "fullName": "Existing__c",
+            "type": "Text"
+          },
+          "after": {
+            "fullName": "Existing__c",
+            "type": "Text"
+          }
+        }
+      ]
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Test Four",
+      "after": "Test Four"
+    }
+  ]
+}

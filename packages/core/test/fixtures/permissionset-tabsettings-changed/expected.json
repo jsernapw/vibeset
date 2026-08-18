@@ -1,0 +1,34 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "tabSettings",
+      "key": "tabSettings",
+      "status": "changed",
+      "children": [
+        {
+          "path": "tabSettings.My_Custom_Tab__c",
+          "key": "My_Custom_Tab__c",
+          "status": "changed",
+          "children": [
+            {
+              "path": "tabSettings.My_Custom_Tab__c.tab",
+              "key": "tab",
+              "status": "identical",
+              "before": "My_Custom_Tab__c",
+              "after": "My_Custom_Tab__c"
+            },
+            {
+              "path": "tabSettings.My_Custom_Tab__c.visibility",
+              "key": "visibility",
+              "status": "changed",
+              "before": "DefaultOff",
+              "after": "Visible"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

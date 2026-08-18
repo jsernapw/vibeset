@@ -1,0 +1,55 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "label",
+      "key": "label",
+      "status": "identical",
+      "before": "Test Nine",
+      "after": "Test Nine"
+    },
+    {
+      "path": "validationRules",
+      "key": "validationRules",
+      "status": "changed",
+      "children": [
+        {
+          "path": "validationRules.Amount_Must_Be_Positive",
+          "key": "Amount_Must_Be_Positive",
+          "status": "changed",
+          "children": [
+            {
+              "path": "validationRules.Amount_Must_Be_Positive.active",
+              "key": "active",
+              "status": "identical",
+              "before": "true",
+              "after": "true"
+            },
+            {
+              "path": "validationRules.Amount_Must_Be_Positive.errorConditionFormula",
+              "key": "errorConditionFormula",
+              "status": "changed",
+              "before": "Amount__c < 0",
+              "after": "Amount__c <= 0"
+            },
+            {
+              "path": "validationRules.Amount_Must_Be_Positive.errorMessage",
+              "key": "errorMessage",
+              "status": "changed",
+              "before": "Amount must be positive.",
+              "after": "Amount must be greater than zero."
+            },
+            {
+              "path": "validationRules.Amount_Must_Be_Positive.fullName",
+              "key": "fullName",
+              "status": "identical",
+              "before": "Amount_Must_Be_Positive",
+              "after": "Amount_Must_Be_Positive"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

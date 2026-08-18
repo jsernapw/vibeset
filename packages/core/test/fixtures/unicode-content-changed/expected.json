@@ -1,0 +1,13 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "label",
+      "key": "label",
+      "status": "changed",
+      "before": "客户 🎉",
+      "after": "客户 🎊"
+    }
+  ]
+}

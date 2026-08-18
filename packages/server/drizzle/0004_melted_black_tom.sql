@@ -1,0 +1,1 @@
+ALTER TABLE `comparisons` ADD `cache_stats_json` text;

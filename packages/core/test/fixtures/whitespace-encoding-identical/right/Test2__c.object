@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+
+        <label>It's a Test</label>
+        <description/>
+    <fields>
+                <fullName>Name__c</fullName>
+        <inlineHelpText/>
+        <type>Text</type>
+    </fields>
+
+</CustomObject>

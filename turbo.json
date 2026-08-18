@@ -1,0 +1,30 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "//": "Turbo 2.x defaults to strict env mode and drops any variable not declared here, so these must be listed or they never reach the server/vite processes. NOTE: the `dev` task needs dependsOn ^build because @vibeset/core's dev script is `tsdown --watch`, which clears dist/ before re-emitting; without it, server and cli race against a half-written dist and die with ERR_MODULE_NOT_FOUND. Turbo only accepts `//` comment keys at the root, not inside a task.",
+  "globalEnv": [
+    "VIBESET_TOKEN",
+    "VIBESET_PORT",
+    "VIBESET_HOME",
+    "LOG_LEVEL",
+    "NODE_ENV"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "dependsOn": ["build", "^build", "typecheck"],
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^build"]
+    }
+  }
+}

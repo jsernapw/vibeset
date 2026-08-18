@@ -1,0 +1,61 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "fieldPermissions",
+      "key": "fieldPermissions",
+      "status": "changed",
+      "children": [
+        {
+          "path": "fieldPermissions.Account.Custom_Field__c",
+          "key": "Account.Custom_Field__c",
+          "status": "changed",
+          "children": [
+            {
+              "path": "fieldPermissions.Account.Custom_Field__c.editable",
+              "key": "editable",
+              "status": "changed",
+              "before": "false",
+              "after": "true"
+            },
+            {
+              "path": "fieldPermissions.Account.Custom_Field__c.field",
+              "key": "field",
+              "status": "identical",
+              "before": "Account.Custom_Field__c",
+              "after": "Account.Custom_Field__c"
+            },
+            {
+              "path": "fieldPermissions.Account.Custom_Field__c.readable",
+              "key": "readable",
+              "status": "identical",
+              "before": "true",
+              "after": "true"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "classAccesses",
+      "key": "classAccesses",
+      "status": "identical",
+      "children": [
+        {
+          "path": "classAccesses.MyController",
+          "key": "MyController",
+          "status": "identical",
+          "before": {
+            "apexClass": "MyController",
+            "enabled": "true"
+          },
+          "after": {
+            "apexClass": "MyController",
+            "enabled": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

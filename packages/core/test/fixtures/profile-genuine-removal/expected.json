@@ -1,0 +1,35 @@
+{
+  "status": "changed",
+  "hashesEqual": false,
+  "entries": [
+    {
+      "path": "classAccesses",
+      "key": "classAccesses",
+      "status": "changed",
+      "children": [
+        {
+          "path": "classAccesses.ClassA",
+          "key": "ClassA",
+          "status": "deleted",
+          "before": {
+            "apexClass": "ClassA",
+            "enabled": "true"
+          }
+        },
+        {
+          "path": "classAccesses.ClassB",
+          "key": "ClassB",
+          "status": "identical",
+          "before": {
+            "apexClass": "ClassB",
+            "enabled": "true"
+          },
+          "after": {
+            "apexClass": "ClassB",
+            "enabled": "true"
+          }
+        }
+      ]
+    }
+  ]
+}
