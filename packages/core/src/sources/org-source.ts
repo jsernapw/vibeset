@@ -425,10 +425,10 @@ export class OrgSource implements MetadataSource {
    * once isolated to a batch of one is recorded in `missing` (surfaced the
    * same way a retrieve-level failure already is) and reported via
    * `onWarning`, instead of aborting the whole `materialize()` call — UNLESS
-   * `MAX_ISOLATED_FAILURES_PER_CHUNK` is exceeded for this top-level chunk
-   * (see that constant's doc comment), in which case the underlying error
-   * propagates and the whole `materialize()` call fails, same as before
-   * this existed.
+   * the proportional budget (`MIN_ISOLATED_FAILURES`/
+   * `MAX_ISOLATED_FAILURE_RATIO` above) is exhausted for this top-level
+   * chunk, in which case the underlying error propagates and the whole
+   * `materialize()` call fails, same as before this existed.
    */
   private async retrieveChunkWithIsolation(
     chunkKeys: ComponentKey[],
@@ -475,8 +475,8 @@ export class OrgSource implements MetadataSource {
       const missing: Array<{ key: ComponentKey; reason: string }> = [];
       // Shares one `budget` across both halves (and all deeper recursion)
       // so the cap is per ORIGINAL top-level chunk, not per branch —
-      // otherwise a systemic failure would get `MAX_ISOLATED_FAILURES_PER_CHUNK`
-      // budget in each half independently and the cap would do nothing.
+      // otherwise a systemic failure would get a full budget in each half
+      // independently and the cap would do nothing.
       await Promise.all(
         halves.map(async ([half, halfDir]) => {
           await mkdir(halfDir, { recursive: true });
