@@ -109,6 +109,51 @@ describe('OrgSource.inventory', () => {
     expect(inventory.entries.every((e) => e.lastModifiedDateUnknown)).toBe(true);
     expect(inventory.entries.some((e) => e.key.fullName === 'AccountContactRole')).toBe(true);
   });
+
+  it('isolates a type unsupported by the org (INVALID_TYPE) instead of losing the whole batched listMetadata call', async () => {
+    // Regression test for a real-org finding (RCA DEV/ARM DEV): SOAP's
+    // metadata.list batches up to 3 queries per call, but the call is
+    // all-or-nothing — one type the org's edition/feature set doesn't
+    // support (e.g. `Translations` without Translation Workbench enabled)
+    // throws `INVALID_TYPE` for the ENTIRE batch, silently losing the other
+    // 1-2 types that would have succeeded in the same call unless the
+    // source retries them individually.
+    const warnings: string[] = [];
+    const connection = {
+      getApiVersion: () => '62.0',
+      instanceUrl: 'https://example.my.salesforce.com',
+      metadata: {
+        list: async (queries: Array<{ type: string; folder?: string }>) => {
+          if (queries.some((q) => q.type === 'Translations')) {
+            throw new Error('INVALID_TYPE: Cannot use: Translations in this organization');
+          }
+          return queries.map((q) => ({ type: q.type, fullName: `${q.type}Foo`, lastModifiedDate: '2026-01-01T00:00:00.000Z' }));
+        },
+      },
+      identity: async () => ({ organization_id: '00Dxx', user_id: '005xx' }),
+      limits: async () => ({}),
+    } as unknown as Connection;
+
+    const source = new OrgSource(
+      'org-1',
+      'Dev Org',
+      { username: 'dev@example.com' },
+      { getConnection: async () => connection, onWarning: (w) => warnings.push(w) },
+    );
+
+    // Same batch of 3 the real failure came from: two ordinary types plus
+    // the unsupported one, so the fix must isolate a single bad query
+    // without dropping its batch-mates.
+    const inventory = await source.inventory({ types: ['ApexClass', 'Translations', 'CustomLabels'] });
+
+    const fullNames = inventory.entries.map((e) => e.key.fullName);
+    expect(fullNames).toContain('ApexClassFoo');
+    // CustomLabels is a non-listable singleton (handled separately, never
+    // goes through listMetadata) so it always appears regardless.
+    expect(fullNames).toContain('CustomLabels');
+    expect(fullNames).not.toContain('TranslationsFoo');
+    expect(warnings.some((w) => w.includes('Translations') && w.includes('zero components'))).toBe(true);
+  });
 });
 
 describe('OrgSource.healthCheck', () => {

@@ -193,7 +193,7 @@ export class OrgSource implements MetadataSource {
     const listBatched = async (queries: Array<{ type: string; folder?: string }>): Promise<FilePropertiesLike[]> => {
       const batches = chunk(queries, 3);
       const results = await withConcurrency(batches, this.listMetadataConcurrency, (batch) =>
-        conn.metadata.list(batch, apiVersion) as unknown as Promise<FilePropertiesLike[]>,
+        this.listMetadataBatch(batch, conn, apiVersion),
       );
       return results.flat();
     };
@@ -254,6 +254,49 @@ export class OrgSource implements MetadataSource {
     }
 
     return { sourceId: this.id, entries, folders: folders.size > 0 ? [...folders] : undefined };
+  }
+
+  /**
+   * `conn.metadata.list()` batches up to 3 queries into one SOAP call, but
+   * the call is all-or-nothing: if even one query in the batch names a type
+   * the org's edition/feature set doesn't support (observed against a real
+   * org: `Translations` throws `INVALID_TYPE` when Translation Workbench
+   * isn't enabled), jsforce throws for the WHOLE batch — every other type
+   * that would have succeeded in the same call is lost, and with the
+   * inventory scope now spanning ~30+ default types, one org-specific
+   * feature gap would otherwise crash the entire inventory rather than just
+   * being absent, defeating the point of a curated "types most orgs
+   * deploy" default that necessarily includes some optional Salesforce
+   * features.
+   *
+   * On failure, retries the batch's members one at a time to isolate which
+   * query actually failed; a query that still fails in isolation is
+   * reported via `onWarning` and treated as zero components for that
+   * type/folder rather than aborting the whole comparison. The common case
+   * (every type in the batch is supported) makes exactly one SOAP call, as
+   * before — this only costs extra round-trips when something is actually
+   * unsupported.
+   */
+  private async listMetadataBatch(
+    batch: Array<{ type: string; folder?: string }>,
+    conn: Connection,
+    apiVersion: string,
+  ): Promise<FilePropertiesLike[]> {
+    try {
+      return (await conn.metadata.list(batch, apiVersion)) as unknown as FilePropertiesLike[];
+    } catch (err) {
+      if (batch.length === 1) {
+        const q = batch[0]!;
+        this.deps.onWarning?.(
+          `listMetadata failed for type "${q.type}"${q.folder ? ` (folder "${q.folder}")` : ''} against ${this.label}: ` +
+            `${(err as Error).message}. Treating as zero components for this type rather than failing the whole inventory ` +
+            `— this usually means the type isn't enabled/available in this org's edition or feature set.`,
+        );
+        return [];
+      }
+      const isolated = await Promise.all(batch.map((q) => this.listMetadataBatch([q], conn, apiVersion)));
+      return isolated.flat();
+    }
   }
 
   /**
