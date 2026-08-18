@@ -329,7 +329,14 @@ export class OrgSource implements MetadataSource {
       await withConcurrency(chunks, this.retrieveConcurrency, async (chunkKeys, i) => {
         const chunkDir = join(rootDir, `chunk-${i}`);
         await mkdir(chunkDir, { recursive: true });
-        const result = await retrieveAndConvert(chunkKeys, chunkDir, undefined, connection);
+        // Isolation only kicks in for a chunk of >1 keys — a chunk that was
+        // already exactly one component (the planner's own decision, not a
+        // bisection artifact) has nothing left to isolate, so a failure
+        // propagates immediately exactly as it always has.
+        const result =
+          chunkKeys.length > 1
+            ? await this.retrieveChunkWithIsolation(chunkKeys, chunkDir, retrieveAndConvert, connection)
+            : await retrieveAndConvert(chunkKeys, chunkDir, undefined, connection);
         for (const [rel, abs] of result.files) files.set(join(`chunk-${i}`, rel), abs);
         missing.push(...result.missing);
       });
@@ -339,6 +346,124 @@ export class OrgSource implements MetadataSource {
     }
 
     return { sourceId: this.id, rootDir, files, missing: missing.length > 0 ? missing : undefined };
+  }
+
+  /**
+   * Floor and ceiling for how many components a single top-level chunk is
+   * allowed to lose to isolated retrieve/convert failures before
+   * `retrieveChunkWithIsolation` gives up and re-throws instead of
+   * continuing to bisect. The actual budget is
+   * `max(MIN_ISOLATED_FAILURES, ceil(chunkSize * MAX_ISOLATED_FAILURE_RATIO))`
+   * — proportional, not a flat count, because real managed packages turned
+   * out to genuinely ship a non-trivial NUMBER of independently-corrupt
+   * `StaticResource`s: a first real-org run against ARM DEV's `omnistudio__`
+   * package (200 StaticResources) hit 6 distinct `BadZipFile` failures
+   * across 6 different resources before a flat cap of 5 aborted a
+   * comparison that should have succeeded with those 6 legitimately missing.
+   *
+   * This is still a safety valve, not "isolate forever": without SOME cap,
+   * a systemic failure (an expired session, a network outage — anything
+   * that fails EVERY component identically) would bisect all the way down
+   * and report the entire chunk as `missing` rather than as the connection
+   * failure it actually is. A `missing` entry reads downstream as "this
+   * component doesn't exist on this side" — silently mass-reporting real
+   * components as missing due to a transient outage is exactly the
+   * fabricated/misleading-data failure mode this project treats as
+   * unacceptable (see the real-org reconciliation requirement in the task
+   * brief). A genuinely systemic failure (every single component in the
+   * chunk failing) still blows through even a generous proportional budget
+   * well before reaching the bottom of the bisection and fails loudly, same
+   * as before this existed.
+   */
+  private static readonly MIN_ISOLATED_FAILURES = 5;
+  private static readonly MAX_ISOLATED_FAILURE_RATIO = 0.3;
+
+  /**
+   * `retrieveAndConvert` (real implementation: `ComponentSet.retrieve` +
+   * SDR's `MetadataConverter`) operates on its whole input as one unit —
+   * there's no per-component partial success for a CONVERSION failure the
+   * way there is for a retrieve-level "Failed" `FileResponse` (those are
+   * already handled, see `defaultRetrieveAndConvert`'s `missing` mapping).
+   * Observed against a real org: one `StaticResource` whose declared
+   * `contentType` claims `application/zip` but whose actual retrieved
+   * bytes aren't a valid zip throws `BadZipFile` for SDR's ENTIRE
+   * conversion batch — every other, perfectly fine component in the same
+   * chunk would otherwise fail right along with it, and with the default
+   * inventory scope now spanning ~30+ types across potentially thousands
+   * of components, one quirky legacy resource anywhere in the org
+   * shouldn't be able to take down a whole comparison.
+   *
+   * On failure, bisects the chunk and retries each half recursively rather
+   * than retrying every component individually — O(log n) extra
+   * retrieve+convert calls to isolate a single bad component out of n,
+   * instead of n. The common case (nothing wrong) is unaffected: exactly
+   * one call, same as before this existed. A component that still fails
+   * once isolated to a batch of one is recorded in `missing` (surfaced the
+   * same way a retrieve-level failure already is) and reported via
+   * `onWarning`, instead of aborting the whole `materialize()` call — UNLESS
+   * `MAX_ISOLATED_FAILURES_PER_CHUNK` is exceeded for this top-level chunk
+   * (see that constant's doc comment), in which case the underlying error
+   * propagates and the whole `materialize()` call fails, same as before
+   * this existed.
+   */
+  private async retrieveChunkWithIsolation(
+    chunkKeys: ComponentKey[],
+    dir: string,
+    retrieveAndConvert: (
+      keys: ComponentKey[],
+      destDir: string,
+      signal: AbortSignal | undefined,
+      connection: Connection,
+    ) => Promise<RetrieveAndConvertResult>,
+    connection: Connection,
+    // Default only applies on the outermost call (recursion always passes
+    // the shared `budget` explicitly) — `chunkKeys.length` here is
+    // therefore the ORIGINAL top-level chunk size, before any bisection,
+    // which is exactly what the proportional budget should be computed
+    // from. See MIN_ISOLATED_FAILURES/MAX_ISOLATED_FAILURE_RATIO's doc
+    // comment for why this is proportional rather than a flat count.
+    budget: { remaining: number } = {
+      remaining: Math.max(OrgSource.MIN_ISOLATED_FAILURES, Math.ceil(chunkKeys.length * OrgSource.MAX_ISOLATED_FAILURE_RATIO)),
+    },
+  ): Promise<RetrieveAndConvertResult> {
+    try {
+      return await retrieveAndConvert(chunkKeys, dir, undefined, connection);
+    } catch (err) {
+      if (chunkKeys.length === 1) {
+        const key = chunkKeys[0]!;
+        if (budget.remaining <= 0) {
+          throw err; // exhausted the tolerance for isolated failures — treat as systemic, fail loud.
+        }
+        budget.remaining -= 1;
+        this.deps.onWarning?.(
+          `Retrieve/convert failed for ${key.type} "${key.fullName}" from ${this.label}: ${(err as Error).message}. ` +
+            `Treating this one component as missing rather than failing every other component in the same retrieve chunk.`,
+        );
+        return { files: new Map(), missing: [{ key, reason: (err as Error).message }] };
+      }
+
+      const mid = Math.floor(chunkKeys.length / 2);
+      const halves: ReadonlyArray<readonly [ComponentKey[], string]> = [
+        [chunkKeys.slice(0, mid), join(dir, 'a')],
+        [chunkKeys.slice(mid), join(dir, 'b')],
+      ];
+      const files = new Map<string, string>();
+      const missing: Array<{ key: ComponentKey; reason: string }> = [];
+      // Shares one `budget` across both halves (and all deeper recursion)
+      // so the cap is per ORIGINAL top-level chunk, not per branch —
+      // otherwise a systemic failure would get `MAX_ISOLATED_FAILURES_PER_CHUNK`
+      // budget in each half independently and the cap would do nothing.
+      await Promise.all(
+        halves.map(async ([half, halfDir]) => {
+          await mkdir(halfDir, { recursive: true });
+          const result = await this.retrieveChunkWithIsolation(half, halfDir, retrieveAndConvert, connection, budget);
+          const prefix = relative(dir, halfDir);
+          for (const [rel, abs] of result.files) files.set(join(prefix, rel), abs);
+          missing.push(...result.missing);
+        }),
+      );
+      return { files, missing };
+    }
   }
 
   private async defaultRetrieveAndConvert(

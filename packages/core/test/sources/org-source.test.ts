@@ -243,6 +243,77 @@ describe('OrgSource.materialize', () => {
     await rm(tree.rootDir, { recursive: true, force: true });
   });
 
+  it('isolates a single bad component in a multi-key chunk (BadZipFile-style conversion failure) instead of losing the whole chunk', async () => {
+    // Regression test for a real-org finding (ARM DEV): a StaticResource
+    // whose real bytes weren't a valid zip made SDR's conversion throw for
+    // the ENTIRE retrieve chunk, not just that component. Same "isolate
+    // and retry" shape as `listMetadataBatch`'s test, but via bisection
+    // since a materialize chunk can be much larger than 3.
+    const warnings: string[] = [];
+    const source = new OrgSource(
+      'org-1',
+      'Dev Org',
+      { username: 'dev@example.com' },
+      {
+        getConnection: async () => fakeConnection(() => []).connection,
+        chunking: { maxFiles: Number.MAX_SAFE_INTEGER, maxBytes: Number.MAX_SAFE_INTEGER }, // force everything into one chunk
+        onWarning: (w) => warnings.push(w),
+        retrieveAndConvert: async (keys, destDir) => {
+          if (keys.some((k) => k.fullName === 'Bad')) {
+            throw new Error('BadZipFile: Unable to open zip file');
+          }
+          return {
+            files: new Map(keys.map((k) => [`${k.fullName}.resource`, `${destDir}/${k.fullName}.resource`])),
+            missing: [],
+          };
+        },
+      },
+    );
+
+    const keys: ComponentKey[] = [
+      { type: 'StaticResource', fullName: 'A' },
+      { type: 'StaticResource', fullName: 'B' },
+      { type: 'StaticResource', fullName: 'Bad' },
+      { type: 'StaticResource', fullName: 'C' },
+      { type: 'StaticResource', fullName: 'D' },
+    ];
+
+    const tree = await source.materialize(keys);
+
+    // The 4 good components still materialize despite Bad's conversion failure.
+    expect(tree.files.size).toBe(4);
+    expect(tree.missing).toEqual([{ key: { type: 'StaticResource', fullName: 'Bad' }, reason: 'BadZipFile: Unable to open zip file' }]);
+    expect(warnings.some((w) => w.includes('Bad') && w.includes('missing'))).toBe(true);
+
+    await rm(tree.rootDir, { recursive: true, force: true });
+  });
+
+  it('still fails the whole materialize call when a chunk failure is systemic (every component fails, not just one)', async () => {
+    // Safety-valve test: a naive "isolate every failure as missing" design
+    // would silently report the ENTIRE chunk as missing during a real
+    // outage (expired session, network down) instead of surfacing it as
+    // the connection failure it is — exactly the "fabricated/misleading
+    // data" failure mode this project treats as unacceptable. The
+    // MAX_ISOLATED_FAILURES_PER_CHUNK budget bounds how much can be
+    // silently swallowed before this rethrows instead.
+    const source = new OrgSource(
+      'org-1',
+      'Dev Org',
+      { username: 'dev@example.com' },
+      {
+        getConnection: async () => fakeConnection(() => []).connection,
+        chunking: { maxFiles: Number.MAX_SAFE_INTEGER, maxBytes: Number.MAX_SAFE_INTEGER },
+        retrieveAndConvert: async () => {
+          throw new Error('INVALID_SESSION_ID: Session expired or invalid');
+        },
+      },
+    );
+
+    const keys: ComponentKey[] = Array.from({ length: 20 }, (_, i) => ({ type: 'StaticResource', fullName: `R${i}` }));
+
+    await expect(source.materialize(keys)).rejects.toThrow('INVALID_SESSION_ID');
+  });
+
   it('removes the temp root directory if a chunk fails', async () => {
     const { connection } = fakeConnection(() => []);
     let capturedRoot = '';
