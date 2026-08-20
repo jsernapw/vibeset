@@ -25,7 +25,20 @@ function SourcePicker({
   return (
     <div className="flex flex-1 flex-col gap-1.5">
       <Label>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
+      {/*
+        Radix's `Select` is uncontrolled the instant `value` is `undefined`
+        and controlled the instant it's a string — flipping between the two
+        (exactly what happens here: unset -> picked) logs React's
+        "changing from uncontrolled to controlled" warning and is a real
+        anti-pattern, not just noise: it means the FIRST render of this
+        component is uncontrolled, so Radix bootstraps its own internal
+        value state independently of ours before the switch. `?? ''` keeps
+        it controlled from the very first render — Radix already treats an
+        empty string as "nothing selected" (same as `undefined`) for
+        `SelectValue`'s placeholder, so this is a pure robustness fix with
+        no behavior change for a real selection.
+      */}
+      <Select value={value ?? ''} onValueChange={onChange}>
         <SelectTrigger>
           <SelectValue placeholder="Choose a source..." />
         </SelectTrigger>

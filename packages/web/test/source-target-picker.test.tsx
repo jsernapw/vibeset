@@ -12,12 +12,19 @@ import type { SourceOption } from '../src/lib/adapters/comparisons';
  * failing to accept a selection via coordinate-based browser-automation
  * clicks while Target succeeded, but could not reproduce any asymmetry via
  * real DOM events dispatched at the resolved element (ref-based clicks) —
- * strong evidence the coordinate-based repro was a browser-automation
- * coordinate-space artifact (screenshot-pixel-space vs actual viewport
- * scale), not a code-level defect. This test exercises the ACTUAL
- * `SourceTargetPicker` component with Testing Library's `userEvent`
- * (real DOM events via jsdom, no screen-coordinate guessing involved) to
- * settle it definitively and guard against a real regression either way.
+ * both accept selections identically and reliably.
+ *
+ * What WAS real, confirmed via the browser console during that
+ * investigation: "Select is changing from uncontrolled to controlled" —
+ * `leftId`/`rightId` start as `undefined` in `comparisons.new.tsx`'s
+ * `useState`, so Radix's `Select` mounted uncontrolled on first render and
+ * flipped to controlled the moment a value was picked. That's a real React
+ * anti-pattern (the component bootstraps its own internal state before the
+ * switch), fixed in `SourceTargetPicker.tsx` by defaulting `value` to `''`
+ * so it's controlled from the very first render. This file exercises the
+ * ACTUAL `SourceTargetPicker` component with Testing Library's `userEvent`
+ * (real DOM events via jsdom) to guard both the original "does Source
+ * accept a value" question and the uncontrolled/controlled fix.
  */
 
 const OPTIONS: SourceOption[] = [
@@ -96,4 +103,14 @@ describe('SourceTargetPicker (regression: Source must accept a selection exactly
     expect(onChangeLeft).not.toHaveBeenCalled();
     expect(onChangeRight).not.toHaveBeenCalled();
   });
+
+  // NOTE: a test asserting no "uncontrolled to controlled" console warning
+  // was deliberately NOT added here — verified (by temporarily reverting
+  // the `value ?? ''` fix and re-running) that jsdom/Testing Library does
+  // NOT reproduce that specific React warning the way a real browser does,
+  // so such a test would pass whether or not the fix is present and give
+  // false confidence. The warning was confirmed present in a real Chrome
+  // console before the fix and absent after, by direct observation — see
+  // this PR's description. The behavioral tests above (value round-trips,
+  // both pickers accept a selection) are what actually guard this file.
 });
