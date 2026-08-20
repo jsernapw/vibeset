@@ -1,7 +1,7 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { ComponentSnapshot, SnapshotLookupKey, SnapshotPutParams, SnapshotStore, SnapshotStoreStats } from '@vibeset/core';
-import { sha256Hex } from '@vibeset/core';
+import { componentKeyString, sha256Hex } from '@vibeset/core';
 import type { Db } from '../db/client.js';
 import { componentSnapshotRefs, componentSnapshots } from '../db/schema.js';
 
@@ -53,41 +53,154 @@ export class DrizzleSnapshotStore implements SnapshotStore {
     return row.sha256;
   }
 
+  /**
+   * Batched `lookup()`: one `SELECT ... WHERE sourceId = ? AND type = ? AND
+   * fullName IN (...)` per distinct `type` in the batch, instead of one
+   * query per component. `component_snapshot_refs_lookup_idx` already
+   * covers `(sourceId, type, fullName, lastModifiedDate)`, so each of these
+   * grouped queries is still index-backed — this only cuts the NUMBER of
+   * round trips (and, more importantly, the number of separate statement
+   * dispatches through better-sqlite3's synchronous API), not the index
+   * usage.
+   *
+   * `lastModifiedDate` is matched in JS rather than pushed into the SQL
+   * `WHERE` (which would require one `OR` clause per requested
+   * `(fullName, lastModifiedDate)` pair — no simpler than one query per
+   * component). When more than one ref row matches the same
+   * `(fullName, lastModifiedDate)` — possible if the same component was
+   * captured more than once at that exact date — the most recently
+   * `capturedAt` one wins, matching `lookup()`'s `orderBy(capturedAt
+   * desc).limit(1)` tie-break exactly.
+   */
+  async lookupMany(params: readonly SnapshotLookupKey[]): Promise<ReadonlyMap<string, string>> {
+    const result = new Map<string, string>();
+    if (params.length === 0) return result;
+
+    const bySourceAndType = new Map<string, SnapshotLookupKey[]>();
+    for (const p of params) {
+      const groupKey = `${p.sourceId}\u0000${p.key.type}`;
+      const list = bySourceAndType.get(groupKey);
+      if (list) list.push(p);
+      else bySourceAndType.set(groupKey, [p]);
+    }
+
+    const hitShas: string[] = [];
+
+    for (const group of bySourceAndType.values()) {
+      const { sourceId, key } = group[0]!;
+      const type = key.type;
+      const fullNames = [...new Set(group.map((p) => p.key.fullName))];
+
+      const rows = this.db
+        .select({
+          fullName: componentSnapshotRefs.fullName,
+          lastModifiedDate: componentSnapshotRefs.lastModifiedDate,
+          sha256: componentSnapshotRefs.sha256,
+          capturedAt: componentSnapshotRefs.capturedAt,
+        })
+        .from(componentSnapshotRefs)
+        .where(
+          and(
+            eq(componentSnapshotRefs.sourceId, sourceId),
+            eq(componentSnapshotRefs.type, type),
+            inArray(componentSnapshotRefs.fullName, fullNames),
+          ),
+        )
+        .all();
+
+      // Most-recent-wins per (fullName, lastModifiedDate), same tie-break as lookup().
+      const best = new Map<string, { sha256: string; capturedAt: string }>();
+      for (const r of rows) {
+        const rowKey = `${r.fullName}\u0000${r.lastModifiedDate}`;
+        const existing = best.get(rowKey);
+        if (!existing || r.capturedAt > existing.capturedAt) {
+          best.set(rowKey, { sha256: r.sha256, capturedAt: r.capturedAt });
+        }
+      }
+
+      for (const p of group) {
+        const match = best.get(`${p.key.fullName}\u0000${p.lastModifiedDate}`);
+        if (match) {
+          result.set(componentKeyString(p.key), match.sha256);
+          hitShas.push(match.sha256);
+        }
+      }
+    }
+
+    this.hits += result.size;
+    this.misses += params.length - result.size;
+
+    if (hitShas.length > 0) {
+      const distinctShas = [...new Set(hitShas)];
+      const sizeRows = this.db
+        .select({ sha256: componentSnapshots.sha256, size: componentSnapshots.size })
+        .from(componentSnapshots)
+        .where(inArray(componentSnapshots.sha256, distinctShas))
+        .all();
+      const sizeBySha = new Map(sizeRows.map((r) => [r.sha256, r.size] as const));
+      for (const sha256 of hitShas) this.bytesSaved += sizeBySha.get(sha256) ?? 0;
+    }
+
+    return result;
+  }
+
   async put(params: SnapshotPutParams): Promise<ComponentSnapshot> {
-    const sha256 = sha256Hex(params.content);
-    const size = Buffer.byteLength(params.content, 'utf8');
+    const [result] = await this.putMany([params]);
+    return result!;
+  }
+
+  /**
+   * Batched `put()`: wraps the whole batch's inserts in ONE SQLite
+   * transaction instead of each `put()` call committing (and fsync-ing its
+   * journal) independently. This is the fix for the measured ~5x-per-row
+   * cost gap against `persistDiffResults`'s already-batched write — that
+   * code already wraps its inserts in a single `db.transaction()`; `put()`
+   * never did. Semantics are otherwise identical to N sequential `put()`
+   * calls, including per-row content-addressed dedup
+   * (`onConflictDoNothing` on `component_snapshots.sha256`).
+   */
+  async putMany(params: readonly SnapshotPutParams[]): Promise<ComponentSnapshot[]> {
+    if (params.length === 0) return [];
+
     const now = new Date().toISOString();
+    const prepared = params.map((p) => ({
+      params: p,
+      sha256: sha256Hex(p.content),
+      size: Buffer.byteLength(p.content, 'utf8'),
+    }));
 
-    this.db
-      .insert(componentSnapshots)
-      .values({
-        sha256,
-        type: params.key.type,
-        fullName: params.key.fullName,
-        parentFullName: params.key.parentFullName,
-        content: params.content,
-        size,
-        firstSeenAt: now,
-      })
-      .onConflictDoNothing({ target: componentSnapshots.sha256 })
-      .run();
+    this.db.transaction((tx) => {
+      for (const { params: p, sha256, size } of prepared) {
+        tx.insert(componentSnapshots)
+          .values({
+            sha256,
+            type: p.key.type,
+            fullName: p.key.fullName,
+            parentFullName: p.key.parentFullName,
+            content: p.content,
+            size,
+            firstSeenAt: now,
+          })
+          .onConflictDoNothing({ target: componentSnapshots.sha256 })
+          .run();
 
-    this.db
-      .insert(componentSnapshotRefs)
-      .values({
-        id: nanoid(),
-        sourceId: params.sourceId,
-        orgId: params.orgId,
-        type: params.key.type,
-        fullName: params.key.fullName,
-        parentFullName: params.key.parentFullName,
-        lastModifiedDate: params.lastModifiedDate,
-        sha256,
-        capturedAt: now,
-      })
-      .run();
+        tx.insert(componentSnapshotRefs)
+          .values({
+            id: nanoid(),
+            sourceId: p.sourceId,
+            orgId: p.orgId,
+            type: p.key.type,
+            fullName: p.key.fullName,
+            parentFullName: p.key.parentFullName,
+            lastModifiedDate: p.lastModifiedDate,
+            sha256,
+            capturedAt: now,
+          })
+          .run();
+      }
+    });
 
-    return { sha256, key: params.key, content: params.content, size, firstSeenAt: now };
+    return prepared.map(({ params: p, sha256, size }) => ({ sha256, key: p.key, content: p.content, size, firstSeenAt: now }));
   }
 
   async getBlob(sha256: string): Promise<ComponentSnapshot | undefined> {

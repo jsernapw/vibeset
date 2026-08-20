@@ -1,8 +1,20 @@
 import type { ComponentInventoryEntry, ComponentKey, MetadataSource, TypeFilter } from '../types/metadata-source.js';
 import type { JobProgress } from '../types/job.js';
-import type { SnapshotStore } from '../store/snapshot-store.js';
+import type { SnapshotLookupKey, SnapshotStore } from '../store/snapshot-store.js';
 import { componentKeyString } from '../util/component-key.js';
 import { type ChunkingOptions, planMaterializeChunks } from './chunking.js';
+
+/**
+ * How many entries' worth of lookup keys go into a single `store.lookupMany()`
+ * call. Batched, not unbounded, for two reasons: (1) SQLite's bound-parameter
+ * limit — `DrizzleSnapshotStore.lookupMany` issues one `fullName IN (...)`
+ * query per distinct type in the batch, and a single-type source (the
+ * synthetic 50k-ApexClass benchmark is exactly this case) would otherwise
+ * try to bind 50,000 parameters in one query; (2) so `AbortSignal`
+ * cancellation and `onProgress` still get a chance to run between batches on
+ * a very large inventory, same cadence as the old per-500 emit this replaces.
+ */
+const CACHE_LOOKUP_BATCH_SIZE = 500;
 
 /**
  * The retrieval plan for a single `MetadataSource`: what inventory found,
@@ -87,31 +99,42 @@ export class RetrievalPlanner {
     const cacheHits: ComponentKey[] = [];
     const toFetch: ComponentKey[] = [];
     const cacheHitShas = new Map<string, string>();
+    const total = inventory.entries.length;
 
-    for (let i = 0; i < inventory.entries.length; i += 1) {
-      const entry = inventory.entries[i]!;
-      // Components whose source can't supply a real lastModifiedDate must
-      // always be treated as changed — there's no timestamp to compare, so
-      // a cache hit here would risk silently serving stale content forever.
-      if (!entry.lastModifiedDateUnknown) {
-        const cached = await this.store.lookup({
-          sourceId: source.id,
-          key: entry.key,
-          lastModifiedDate: entry.lastModifiedDate,
-        });
-        if (cached) {
-          cacheHits.push(entry.key);
-          cacheHitShas.set(componentKeyString(entry.key), cached);
-          continue;
+    // Batched cache-check: one `store.lookupMany()` round trip per
+    // CACHE_LOOKUP_BATCH_SIZE entries instead of one `store.lookup()` await
+    // per component. This is the dominant cost at scale — Phase 2 Workstream
+    // D measured this loop (the "cachePlanning" phase) as 47.1% of total
+    // warm-run time on a 50k-component synthetic corpus. Entries whose
+    // `lastModifiedDateUnknown` is true are never looked up, same contract
+    // as before — see the comment this replaced.
+    for (let start = 0; start < total; start += CACHE_LOOKUP_BATCH_SIZE) {
+      options.signal?.throwIfAborted();
+      const batch = inventory.entries.slice(start, start + CACHE_LOOKUP_BATCH_SIZE);
+
+      const lookupParams: SnapshotLookupKey[] = [];
+      for (const entry of batch) {
+        if (!entry.lastModifiedDateUnknown) {
+          lookupParams.push({ sourceId: source.id, key: entry.key, lastModifiedDate: entry.lastModifiedDate });
         }
       }
-      toFetch.push(entry.key);
+      const hits = lookupParams.length > 0 ? await this.store.lookupMany(lookupParams) : new Map<string, string>();
 
-      if (i % 500 === 0) {
-        options.signal?.throwIfAborted();
-        const pct = 40 + Math.round((i / Math.max(inventory.entries.length, 1)) * 40);
-        emit(pct, `Checked cache for ${i}/${inventory.entries.length}...`);
+      for (const entry of batch) {
+        if (!entry.lastModifiedDateUnknown) {
+          const cached = hits.get(componentKeyString(entry.key));
+          if (cached) {
+            cacheHits.push(entry.key);
+            cacheHitShas.set(componentKeyString(entry.key), cached);
+            continue;
+          }
+        }
+        toFetch.push(entry.key);
       }
+
+      const checked = Math.min(start + CACHE_LOOKUP_BATCH_SIZE, total);
+      const pct = 40 + Math.round((checked / Math.max(total, 1)) * 40);
+      emit(pct, `Checked cache for ${checked}/${total}...`);
     }
 
     options.signal?.throwIfAborted();

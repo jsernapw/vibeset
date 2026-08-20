@@ -1,7 +1,7 @@
 import { rm, stat } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import type { Connection } from '@salesforce/core';
-import { OrgSource, listAuthorizedOrgs, type FilePropertiesLike } from '../../src/sources/org-source.js';
+import { OrgSource, convertWithIsolation, listAuthorizedOrgs, type FilePropertiesLike } from '../../src/sources/org-source.js';
 import type { ComponentKey } from '../../src/types/metadata-source.js';
 
 vi.mock('@salesforce/core', async () => {
@@ -333,6 +333,101 @@ describe('OrgSource.materialize', () => {
     await expect(source.materialize([{ type: 'ApexClass', fullName: 'A' }])).rejects.toThrow('simulated retrieve failure');
     expect(capturedRoot).not.toBe('');
     await expect(stat(capturedRoot)).rejects.toThrow();
+  });
+});
+
+describe('convertWithIsolation', () => {
+  // Phase 2 Workstream D: this is the extracted, directly-testable body of
+  // OrgSource's local conversion-failure isolation — the fix for the
+  // confirmed root cause of the 33-type default's >13-minute real-org run
+  // (bisecting at the retrieveAndConvert/network level instead of the
+  // local convert level; see org-source.ts's doc comments). These tests
+  // never touch SDR, a ComponentSet, or a Connection — `convertFn` is a
+  // plain fake, same style as `materialize()`'s injected `retrieveAndConvert`
+  // tests above.
+
+  function key(fullName: string): ComponentKey {
+    return { type: 'StaticResource', fullName };
+  }
+
+  it('converts everything in one call when nothing fails', async () => {
+    const items = ['A', 'B', 'C'];
+    const calls: string[][] = [];
+    const convertFn = async (batch: readonly string[]) => {
+      calls.push([...batch]);
+    };
+
+    const missing = await convertWithIsolation(items, convertFn, key, 'Test Org', undefined);
+
+    expect(missing).toEqual([]);
+    expect(calls).toEqual([['A', 'B', 'C']]); // exactly one call — the common case is unaffected
+  });
+
+  it('isolates a single bad item via bisection without losing the good ones, and never calls back with more than the failing subset', async () => {
+    const items = ['A', 'Bad', 'C', 'D'];
+    const convertCalls: string[][] = [];
+    const convertFn = async (batch: readonly string[]) => {
+      convertCalls.push([...batch]);
+      if (batch.includes('Bad')) throw new Error('BadZipFile: Unable to open zip file');
+    };
+    const warnings: string[] = [];
+
+    const missing = await convertWithIsolation(items, convertFn, key, 'Test Org', (m) => warnings.push(m));
+
+    expect(missing).toEqual([{ key: key('Bad'), reason: 'BadZipFile: Unable to open zip file' }]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Bad');
+    expect(warnings[0]).toContain('isolated locally');
+    // Bisection, not linear retry: never re-attempts the full failing set
+    // beyond what's needed to narrow down to the single bad item.
+    expect(convertCalls.length).toBeLessThan(items.length * 2);
+  });
+
+  it('stays cheap under DENSE failures — the real-org shape (~20-30% of 200 StaticResources) that made retrieve-level bisection catastrophic', async () => {
+    // Mirrors the confirmed ARM DEV finding (60-70 BadZipFile failures out
+    // of 200 StaticResources): convertFn NEVER simulates a network call, so
+    // even at ~20% failure density (kept under this budget so the test
+    // asserts the "resolves, doesn't throw" case; the budget-exhaustion
+    // case is its own test below) this must resolve in a bounded number of
+    // calls, not "materialize() hangs for minutes."
+    const n = 200;
+    const failRate = 0.2;
+    let seed = 7;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const items = Array.from({ length: n }, (_, i) => `C${i}`);
+    const failing = new Set(items.filter(() => rand() < failRate));
+
+    let convertCalls = 0;
+    const convertFn = async (batch: readonly string[]) => {
+      convertCalls += 1;
+      if (batch.some((b) => failing.has(b))) throw new Error('BadZipFile');
+    };
+
+    const missing = await convertWithIsolation(items, convertFn, key, 'ARM DEV', undefined);
+
+    // Every item reported missing really was one of the failing ones (no
+    // good component ever gets dropped), and the count never exceeds what
+    // actually failed.
+    for (const m of missing) expect(failing.has(m.key.fullName)).toBe(true);
+    expect(missing.length).toBeLessThanOrEqual(failing.size);
+    // The whole point of the fix: this used to mean ~250+ REAL Salesforce
+    // Retrieve+poll round trips (minutes); here, with zero network
+    // involved, it's just an assertion that call count stays bounded and
+    // the test itself completes near-instantly (no `sleep`, no real I/O).
+    expect(convertCalls).toBeGreaterThan(1);
+    expect(convertCalls).toBeLessThan(n * 2);
+  });
+
+  it('still throws (fails loudly) once the proportional failure budget is exhausted by a systemic failure — same safety net as before, not silently swallowed', async () => {
+    const items = Array.from({ length: 20 }, (_, i) => `C${i}`);
+    const convertFn = async () => {
+      throw new Error('simulated systemic outage'); // every item fails, always
+    };
+
+    await expect(convertWithIsolation(items, convertFn, key, 'Test Org', undefined)).rejects.toThrow('simulated systemic outage');
   });
 });
 
