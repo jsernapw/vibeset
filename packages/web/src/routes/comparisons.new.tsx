@@ -8,6 +8,7 @@ import { SourceTargetPicker } from '@/components/comparisons/SourceTargetPicker'
 import { useSourceOptions } from '@/lib/adapters/comparisons';
 import { useComparisonFlowStore } from '@/lib/comparison-flow-store';
 import { buildWizardSteps } from '@/lib/wizard-steps';
+import { resolveContinueHint } from '@/lib/source-target-hint';
 
 /** Step 1 of the comparison wizard: choose the source and target to diff. */
 export function ComparisonSourcesPage() {
@@ -19,7 +20,17 @@ export function ComparisonSourcesPage() {
 
   const leftOpt = options.find((o) => o.id === leftId);
   const rightOpt = options.find((o) => o.id === rightId);
-  const canContinue = !!leftOpt && !!rightOpt && leftId !== rightId;
+  const sameNonEmpty = !!leftId && leftId === rightId;
+  const canContinue = !!leftOpt && !!rightOpt && !sameNonEmpty;
+
+  // A disabled "Continue" button with no explanation reads as broken (this
+  // is the greyed-out-button report in the Phase 2 plan's known debt —
+  // investigated at length and never root-caused to a picker defect: a
+  // component test and repeated manual reproduction both show Source and
+  // Target accept selections identically). Whatever the original cause,
+  // a user staring at a disabled button deserves to be told which half is
+  // still missing, not just that it's disabled.
+  const continueHint = resolveContinueHint({ hasSource: !!leftOpt, hasTarget: !!rightOpt, sameNonEmpty });
 
   const sourcesCommitted = !!(flow.leftId && flow.rightId && flow.leftId !== flow.rightId);
   const steps = buildWizardSteps({ sourcesReady: sourcesCommitted, comparisonId: flow.comparisonId, deploymentId: flow.deploymentId });
@@ -63,11 +74,20 @@ export function ComparisonSourcesPage() {
             }}
           />
 
-          {leftId && leftId === rightId && (
-            <p className="text-sm text-amber-600 dark:text-amber-400">Source and target must be different.</p>
-          )}
-
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-4">
+            {continueHint ? (
+              <p
+                className={
+                  sameNonEmpty
+                    ? 'text-sm text-amber-600 dark:text-amber-400'
+                    : 'text-sm text-neutral-400 dark:text-neutral-500'
+                }
+              >
+                {continueHint}
+              </p>
+            ) : (
+              <span />
+            )}
             <Button disabled={!canContinue} onClick={handleContinue}>
               Continue to metadata types <ArrowRight className="h-4 w-4" />
             </Button>
