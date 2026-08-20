@@ -1,6 +1,15 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { GitRefSource, OrgSource, RetrievalPlanner, SfdxProjectSource, type MetadataSource, type TypeFilter } from '@vibeset/core';
+import {
+  DEFAULT_INVENTORY_TYPES,
+  GitRefSource,
+  listAllInventoryTypeNames,
+  OrgSource,
+  RetrievalPlanner,
+  SfdxProjectSource,
+  type MetadataSource,
+  type TypeFilter,
+} from '@vibeset/core';
 import type { JobHandler } from '../../jobs/job-runner.js';
 import type { Db } from '../../db/client.js';
 import { connections } from '../../db/schema.js';
@@ -101,4 +110,19 @@ export const inventoryRouter = router({
       });
       return { jobId };
     }),
+
+  /**
+   * The "available and selectable" half of Phase 2A-b's type expansion
+   * (see `sources/registry.ts`'s `DEFAULT_INVENTORY_TYPES` doc comment for
+   * the full reasoning): `all` is every metadata type name SDR's
+   * `RegistryAccess` can resolve (~418), `default` is the curated ~33-type
+   * subset a comparison uses when no explicit `TypeFilter.types` is given.
+   * A type-picker UI checks `default` to pre-select the sensible set while
+   * still letting a user opt into anything in `all`. No connection/org
+   * required — this is pure registry data, not per-org inventory.
+   */
+  availableTypes: publicProcedure.query(async () => {
+    const all = await listAllInventoryTypeNames();
+    return { all, default: [...DEFAULT_INVENTORY_TYPES] };
+  }),
 });

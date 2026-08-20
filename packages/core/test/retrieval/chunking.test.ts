@@ -122,4 +122,34 @@ describe('type sets', () => {
       expect(PROFILE_PAIRED_TYPES.has(t)).toBe(false);
     }
   });
+
+  it('every type that Phase 2A-b newly added to DEFAULT_INVENTORY_TYPES and that feeds a Profile/PermissionSet grid entry is still recognized as paired', () => {
+    // Regression guard for the inventory-type expansion (registry.ts):
+    // ApexPage, CustomTab, RecordType and CustomApplication were NOT in
+    // Phase 1's 11-type default, so `pageAccesses`/`tabVisibilities`+
+    // `tabSettings`/`recordTypeVisibilities`+`layoutAssignments`/
+    // `applicationVisibilities` were effectively always empty in a default
+    // comparison even though this pairing table already named them. Now
+    // that the default includes them, a default Profile/PermissionSet
+    // comparison actually co-retrieves the components that populate those
+    // grid sections — this test pins that PROFILE_PAIRED_TYPES wasn't
+    // quietly narrowed in a way that would silently regress it back.
+    for (const t of ['ApexPage', 'CustomTab', 'RecordType', 'CustomApplication']) {
+      expect(PROFILE_PAIRED_TYPES.has(t)).toBe(true);
+    }
+  });
+
+  it('newly-defaulted paired types land in the forced core chunk alongside a Profile, same as the original Phase 1 set', () => {
+    const keys = [
+      key('Profile', 'Admin'),
+      key('ApexPage', 'MyPage'),
+      key('CustomTab', 'MyTab'),
+      key('RecordType', 'Widget__c.Standard'),
+      key('CustomApplication', 'MyApp'),
+    ];
+    const { chunks, warnings } = planMaterializeChunks(keys);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toEqual(expect.arrayContaining(keys));
+    expect(warnings.some((w) => w.includes('no paired component types'))).toBe(false);
+  });
 });

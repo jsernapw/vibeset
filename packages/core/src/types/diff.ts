@@ -37,6 +37,17 @@ export interface DiffResult {
    * JS/HTML/CSS, VF pages. Mutually exclusive with `entries` in practice.
    */
   readonly textDiff?: TextDiffHunk[];
+  /**
+   * `true` for binary-bodied types (`StaticResource`, `Document`: zip,
+   * image, or other opaque content — see `util/binary-content.ts`). These
+   * are compared by content hash only, never `entries`/`textDiff`, because
+   * there is no meaningful line- or element-level diff of arbitrary bytes.
+   * The UI contract: render `status: 'changed'` on a binary result as
+   * "binary content changed" (sha256 before/after), never attempt a
+   * tree/line diff renderer for it. Omitted (not `false`) for every
+   * non-binary type, matching this field's additive nature.
+   */
+  readonly binary?: boolean;
 }
 
 export interface TextDiffHunk {
