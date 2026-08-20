@@ -42,6 +42,16 @@ interface ComparisonFlowState {
   rightId?: string;
   rightLabel?: string;
   selectedTypes: string[];
+  /**
+   * True once `selectedTypes` has been set at least once for the current
+   * wizard pass (whether by the auto-applied curated default or by the
+   * user editing the picker). Distinguishes "never touched — the types
+   * step should pre-populate the curated default when it loads" from
+   * "the user deliberately cleared every type" — both states have an
+   * empty `selectedTypes` array, so that alone can't tell them apart. See
+   * `routes/comparisons.new.types.tsx`.
+   */
+  typesInitialized: boolean;
   comparisonId?: string;
   deploymentId?: string;
   deployOptions: DeployOptionsDraft;
@@ -58,6 +68,7 @@ interface ComparisonFlowState {
 
 export const useComparisonFlowStore = create<ComparisonFlowState>((set, get) => ({
   selectedTypes: [],
+  typesInitialized: false,
   deployOptions: defaultDeployOptions(),
 
   setSources: (source) =>
@@ -68,7 +79,7 @@ export const useComparisonFlowStore = create<ComparisonFlowState>((set, get) => 
       deploymentId: undefined,
     }),
 
-  setSelectedTypes: (types) => set({ selectedTypes: types }),
+  setSelectedTypes: (types) => set({ selectedTypes: types, typesInitialized: true }),
 
   setComparisonId: (id) =>
     set({
@@ -88,6 +99,7 @@ export const useComparisonFlowStore = create<ComparisonFlowState>((set, get) => 
       rightId: undefined,
       rightLabel: undefined,
       selectedTypes: [],
+      typesInitialized: false,
       comparisonId: undefined,
       deploymentId: undefined,
       deployOptions: defaultDeployOptions(),

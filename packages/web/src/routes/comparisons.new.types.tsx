@@ -7,11 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { ComparisonStepper } from '@/components/comparisons/ComparisonStepper';
 import { TypeFilterPanel } from '@/components/comparisons/TypeFilterPanel';
 import { ComparisonRunPanel } from '@/components/comparisons/ComparisonRunPanel';
-import { useRunComparison } from '@/lib/adapters/comparisons';
+import { useAvailableTypes, useRunComparison } from '@/lib/adapters/comparisons';
 import { useComparisonFlowStore } from '@/lib/comparison-flow-store';
 import { toServerSides } from '@/lib/comparison-direction';
 import { buildWizardSteps } from '@/lib/wizard-steps';
-import { PHASE1_METADATA_TYPES } from '@/lib/metadata-types';
+import { resolveDefaultTypeSelection } from '@/lib/type-selection';
 
 /** Step 2 of the comparison wizard: pick metadata types (genuinely multi-select, re-editable), then run. */
 export function ComparisonTypesPage() {
@@ -19,6 +19,27 @@ export function ComparisonTypesPage() {
   const flow = useComparisonFlowStore();
   const [selectedTypes, setSelectedTypes] = useState<string[]>(flow.selectedTypes);
   const run = useRunComparison();
+  const availableTypes = useAvailableTypes();
+
+  // First time this wizard pass reaches the types step (nothing committed
+  // to the flow store yet), pre-populate the curated ~33-type default the
+  // moment it loads — a user should see exactly what a comparison will run
+  // against, not an empty picker with a footnote explaining what "empty"
+  // secretly means. `resolveDefaultTypeSelection` (tested directly in
+  // `type-selection.test.ts`) is what decides whether to apply it, so a
+  // user who deliberately clears every type via "Clear all" doesn't get it
+  // silently reapplied.
+  useEffect(() => {
+    const defaults = resolveDefaultTypeSelection({
+      typesInitialized: flow.typesInitialized,
+      defaultTypes: availableTypes.data?.default,
+    });
+    if (defaults) {
+      setSelectedTypes(defaults);
+      flow.setSelectedTypes(defaults);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableTypes.data, flow.typesInitialized]);
 
   // Guarded by `beforeLoad` in router.tsx, but stay defensive: if sources
   // somehow aren't set (e.g. store cleared in another tab), don't render a
@@ -90,15 +111,26 @@ export function ComparisonTypesPage() {
       <Card>
         <CardHeader>
           <CardTitle>Metadata scope</CardTitle>
-          <CardDescription>Add or remove types freely — nothing here locks you out of picking more.</CardDescription>
+          <CardDescription>
+            Pre-filled with the {availableTypes.data?.default.length ?? 33} types most release managers deploy. Add or remove
+            freely — nothing here locks you out of picking more.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          <TypeFilterPanel allTypes={PHASE1_METADATA_TYPES} selectedTypes={selectedTypes} onChange={setSelectedTypes} />
+          <TypeFilterPanel
+            allTypes={availableTypes.data?.all ?? []}
+            curatedTypes={availableTypes.data?.default ?? []}
+            selectedTypes={selectedTypes}
+            onChange={setSelectedTypes}
+            isLoading={availableTypes.isLoading}
+            error={availableTypes.error as Error | null}
+            onRetry={() => availableTypes.refetch()}
+          />
 
           <ComparisonRunPanel status={run.status} percent={run.percent} message={run.message} onCancel={run.cancel} />
 
           <div className="flex justify-end">
-            <Button disabled={run.status === 'running'} onClick={handleRun}>
+            <Button disabled={run.status === 'running' || selectedTypes.length === 0} onClick={handleRun}>
               <Play className="h-4 w-4" /> Run comparison
             </Button>
           </div>
