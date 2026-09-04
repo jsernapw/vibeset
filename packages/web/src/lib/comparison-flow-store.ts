@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { TestLevel } from '@vibeset/core';
+import { defaultScopeFilterFields, type ScopeFilterFields } from './filter-set-utils';
 
 /**
  * Cross-step state for the comparison -> deploy wizard (Choose sources ->
@@ -52,12 +53,23 @@ interface ComparisonFlowState {
    * `routes/comparisons.new.types.tsx`.
    */
   typesInitialized: boolean;
+  /**
+   * The rest of `TypeFilter` beyond type selection — name patterns,
+   * modified-since, and namespace exclusion (`ScopeFiltersPanel`). Kept
+   * alongside `selectedTypes` for the same reason: Back/Forward between
+   * wizard steps must not silently drop a namespace exclusion the user
+   * already dialed in. Always starts from `defaultScopeFilterFields()`
+   * (`excludeManagedPackages: true`), matching the visible-by-default
+   * product default rather than an empty/unset state.
+   */
+  scopeFilter: ScopeFilterFields;
   comparisonId?: string;
   deploymentId?: string;
   deployOptions: DeployOptionsDraft;
 
   setSources: (source: { leftId: string; leftLabel: string; rightId: string; rightLabel: string }) => void;
   setSelectedTypes: (types: string[]) => void;
+  setScopeFilter: (scopeFilter: ScopeFilterFields) => void;
   /** Called once a comparison run succeeds (or when a step "claims" an existing comparisonId, e.g. reached via deep link). Resets `deploymentId`, and resets `deployOptions` to a fresh default only if this is actually a different comparison than before — so Back/Forward within the same comparison keeps the deploy form intact. */
   setComparisonId: (id: string) => void;
   setDeploymentId: (id: string) => void;
@@ -69,6 +81,7 @@ interface ComparisonFlowState {
 export const useComparisonFlowStore = create<ComparisonFlowState>((set, get) => ({
   selectedTypes: [],
   typesInitialized: false,
+  scopeFilter: defaultScopeFilterFields(),
   deployOptions: defaultDeployOptions(),
 
   setSources: (source) =>
@@ -80,6 +93,8 @@ export const useComparisonFlowStore = create<ComparisonFlowState>((set, get) => 
     }),
 
   setSelectedTypes: (types) => set({ selectedTypes: types, typesInitialized: true }),
+
+  setScopeFilter: (scopeFilter) => set({ scopeFilter }),
 
   setComparisonId: (id) =>
     set({
@@ -100,6 +115,7 @@ export const useComparisonFlowStore = create<ComparisonFlowState>((set, get) => 
       rightLabel: undefined,
       selectedTypes: [],
       typesInitialized: false,
+      scopeFilter: defaultScopeFilterFields(),
       comparisonId: undefined,
       deploymentId: undefined,
       deployOptions: defaultDeployOptions(),

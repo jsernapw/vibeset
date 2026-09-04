@@ -4,22 +4,34 @@ import { ArrowLeft, Play } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { ComparisonStepper } from '@/components/comparisons/ComparisonStepper';
 import { TypeFilterPanel } from '@/components/comparisons/TypeFilterPanel';
+import { ScopeFiltersPanel } from '@/components/comparisons/ScopeFiltersPanel';
+import { FilterSetBar } from '@/components/comparisons/FilterSetBar';
 import { ComparisonRunPanel } from '@/components/comparisons/ComparisonRunPanel';
 import { useAvailableTypes, useRunComparison } from '@/lib/adapters/comparisons';
+import { useDeleteFilterSet, useFilterSets, useSaveFilterSet } from '@/lib/adapters/filter-sets';
+import { useNamespaceImpactPreview } from '@/lib/adapters/inventory-preview';
 import { useComparisonFlowStore } from '@/lib/comparison-flow-store';
 import { toServerSides } from '@/lib/comparison-direction';
 import { buildWizardSteps } from '@/lib/wizard-steps';
 import { resolveDefaultTypeSelection } from '@/lib/type-selection';
+import { buildTypeFilter, scopeFieldsFromFilter, withoutNamespaceFiltering, type ScopeFilterFields } from '@/lib/filter-set-utils';
 
-/** Step 2 of the comparison wizard: pick metadata types (genuinely multi-select, re-editable), then run. */
+/** Step 2 of the comparison wizard: pick metadata types and scope filters (name patterns, modified-since, namespace/managed-package exclusion), then run. */
 export function ComparisonTypesPage() {
   const navigate = useNavigate();
   const flow = useComparisonFlowStore();
   const [selectedTypes, setSelectedTypes] = useState<string[]>(flow.selectedTypes);
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilterFields>(flow.scopeFilter);
   const run = useRunComparison();
   const availableTypes = useAvailableTypes();
+
+  const filterSets = useFilterSets();
+  const { save: saveFilterSet, isSaving } = useSaveFilterSet();
+  const { remove: deleteFilterSet } = useDeleteFilterSet();
+  const impact = useNamespaceImpactPreview();
 
   // First time this wizard pass reaches the types step (nothing committed
   // to the flow store yet), pre-populate the curated ~33-type default the
@@ -58,11 +70,15 @@ export function ComparisonTypesPage() {
 
   const goBack = () => {
     flow.setSelectedTypes(selectedTypes);
+    flow.setScopeFilter(scopeFilter);
     navigate({ to: '/comparisons/new' });
   };
 
+  const effectiveFilter = buildTypeFilter(selectedTypes, scopeFilter);
+
   const handleRun = () => {
     flow.setSelectedTypes(selectedTypes);
+    flow.setScopeFilter(scopeFilter);
     if (!flow.leftId || !flow.rightId || !flow.leftLabel || !flow.rightLabel) return;
     // The wizard's Source/Target and the server's left/right are OPPOSITE.
     // That translation lives in `toServerSides` so it is stated once and
@@ -77,8 +93,30 @@ export function ComparisonTypesPage() {
         targetId: flow.rightId,
         targetLabel: flow.rightLabel,
       }),
-      filter: { types: selectedTypes },
+      filter: effectiveFilter,
     });
+  };
+
+  const applyFilterSet = (id: string) => {
+    const set = filterSets.data.find((s) => s.id === id);
+    if (!set) return;
+    const types = set.filter.types ?? [];
+    const scope = scopeFieldsFromFilter(set.filter);
+    setSelectedTypes(types);
+    setScopeFilter(scope);
+  };
+
+  const handleSaveFilterSet = (name: string) => {
+    void saveFilterSet({ name, filter: effectiveFilter });
+  };
+
+  const handleCheckImpact = () => {
+    if (!flow.leftId || !flow.leftLabel || !flow.rightId || !flow.rightLabel) return;
+    const targets = [
+      { connectionId: flow.leftId, label: flow.leftLabel },
+      { connectionId: flow.rightId, label: flow.rightLabel },
+    ];
+    void impact.run(targets, withoutNamespaceFiltering(effectiveFilter), effectiveFilter);
   };
 
   if (!sourcesReady) {
@@ -108,6 +146,15 @@ export function ComparisonTypesPage() {
         </Button>
       </div>
 
+      <FilterSetBar
+        savedSets={filterSets.data}
+        isLoading={filterSets.isLoading}
+        onApply={applyFilterSet}
+        onDelete={(id) => void deleteFilterSet(id)}
+        onSave={handleSaveFilterSet}
+        isSaving={isSaving}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Metadata scope</CardTitle>
@@ -125,6 +172,25 @@ export function ComparisonTypesPage() {
             isLoading={availableTypes.isLoading}
             error={availableTypes.error as Error | null}
             onRetry={() => availableTypes.refetch()}
+          />
+
+          <Separator />
+
+          <ScopeFiltersPanel
+            namePatterns={scopeFilter.namePatterns}
+            onChangeNamePatterns={(namePatterns) => setScopeFilter({ ...scopeFilter, namePatterns })}
+            modifiedSince={scopeFilter.modifiedSince}
+            onChangeModifiedSince={(modifiedSince) => setScopeFilter({ ...scopeFilter, modifiedSince })}
+            excludeManagedPackages={scopeFilter.excludeManagedPackages}
+            onChangeExcludeManagedPackages={(excludeManagedPackages) => setScopeFilter({ ...scopeFilter, excludeManagedPackages })}
+            excludeNamespaces={scopeFilter.excludeNamespaces}
+            onChangeExcludeNamespaces={(excludeNamespaces) => setScopeFilter({ ...scopeFilter, excludeNamespaces })}
+            impact={{
+              status: impact.status,
+              results: impact.results,
+              error: impact.error,
+              onCheck: handleCheckImpact,
+            }}
           />
 
           <ComparisonRunPanel status={run.status} percent={run.percent} message={run.message} onCancel={run.cancel} />

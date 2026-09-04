@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useComparisonFlowStore } from '../src/lib/comparison-flow-store';
+import { defaultScopeFilterFields } from '../src/lib/filter-set-utils';
 
 const SOURCES = { leftId: 'org-a', leftLabel: 'Org A', rightId: 'org-b', rightLabel: 'Org B' };
 
@@ -89,5 +90,22 @@ describe('comparison-flow-store (wizard state preserved across Back/Forward)', (
     expect(state.comparisonId).toBeUndefined();
     expect(state.deploymentId).toBeUndefined();
     expect(state.deployOptions.checkOnly).toBe(true);
+  });
+
+  it('scopeFilter starts at the visible-by-default product default (managed packages excluded)', () => {
+    expect(useComparisonFlowStore.getState().scopeFilter).toEqual(defaultScopeFilterFields());
+  });
+
+  it('setScopeFilter is preserved across repeated reads (simulating Back then Forward), same as setSelectedTypes', () => {
+    const scoped = { namePatterns: ['Account.*'], modifiedSince: '2026-01-01', excludeNamespaces: ['omnistudio'], excludeManagedPackages: false };
+    useComparisonFlowStore.getState().setScopeFilter(scoped);
+    expect(useComparisonFlowStore.getState().scopeFilter).toEqual(scoped);
+    expect(useComparisonFlowStore.getState().scopeFilter).toEqual(scoped);
+  });
+
+  it('startOver resets scopeFilter back to the default (excludeManagedPackages true again)', () => {
+    useComparisonFlowStore.getState().setScopeFilter({ namePatterns: [], modifiedSince: undefined, excludeNamespaces: ['omnistudio'], excludeManagedPackages: false });
+    useComparisonFlowStore.getState().startOver();
+    expect(useComparisonFlowStore.getState().scopeFilter).toEqual(defaultScopeFilterFields());
   });
 });
