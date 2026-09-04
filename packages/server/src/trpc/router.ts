@@ -5,6 +5,7 @@ import { inventoryRouter } from './routers/inventory.js';
 import { comparisonsRouter } from './routers/comparisons.js';
 import { deployRouter } from './routers/deploy.js';
 import { historyRouter } from './routers/history.js';
+import { filtersRouter } from './routers/filters.js';
 
 const jobsRouter = router({
   enqueueDemo: publicProcedure
@@ -55,6 +56,7 @@ export const appRouter = router({
   comparisons: comparisonsRouter,
   deploy: deployRouter,
   history: historyRouter,
+  filters: filtersRouter,
 });
 
 export type AppRouter = typeof appRouter;

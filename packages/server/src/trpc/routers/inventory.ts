@@ -7,6 +7,7 @@ import {
   OrgSource,
   RetrievalPlanner,
   SfdxProjectSource,
+  withManagedPackageDefault,
   type MetadataSource,
   type TypeFilter,
 } from '@vibeset/core';
@@ -14,15 +15,7 @@ import type { JobHandler } from '../../jobs/job-runner.js';
 import type { Db } from '../../db/client.js';
 import { connections } from '../../db/schema.js';
 import { publicProcedure, router } from '../trpc.js';
-
-const TypeFilterSchema = z
-  .object({
-    types: z.array(z.string()).optional(),
-    namePatterns: z.array(z.string()).optional(),
-    modifiedSince: z.string().optional(),
-    excludeNamespaces: z.array(z.string()).optional(),
-  })
-  .optional();
+import { OptionalTypeFilterSchema as TypeFilterSchema } from './shared/type-filter-schema.js';
 
 /** Builds the right `MetadataSource` for a stored `connections` row. */
 function sourceFromConnectionRow(row: typeof connections.$inferSelect): MetadataSource {
@@ -100,13 +93,20 @@ export function createInventoryJobHandler(deps: {
 }
 
 export const inventoryRouter = router({
-  /** Starts an inventory job for a registered connection through the Phase 0 job runner; follow progress over `/ws/jobs/:jobId`. */
+  /**
+   * Starts an inventory job for a registered connection through the Phase 0
+   * job runner; follow progress over `/ws/jobs/:jobId`. Applies the same
+   * `withManagedPackageDefault` policy `comparisons.start` does — an
+   * inventory preview should report the same scope a comparison built from
+   * the same (unspecified) filter would actually fetch, not a larger one
+   * that then shrinks once a comparison actually runs.
+   */
   start: publicProcedure
     .input(z.object({ connectionId: z.string(), filter: TypeFilterSchema }))
     .mutation(async ({ ctx, input }) => {
       const jobId = await ctx.jobRunner.enqueue({
         type: 'inventory',
-        payload: { connectionId: input.connectionId, filter: input.filter } satisfies InventoryJobPayload,
+        payload: { connectionId: input.connectionId, filter: withManagedPackageDefault(input.filter ?? {}) } satisfies InventoryJobPayload,
       });
       return { jobId };
     }),

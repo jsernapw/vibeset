@@ -1,22 +1,14 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import { ComparisonEngine, type DiffEntry, type TextDiffHunk, type TypeFilter } from '@vibeset/core';
+import { ComparisonEngine, withManagedPackageDefault, type DiffEntry, type TextDiffHunk, type TypeFilter } from '@vibeset/core';
 import type { JobHandler } from '../../jobs/job-runner.js';
 import type { Db } from '../../db/client.js';
 import type { SnapshotStore } from '@vibeset/core';
 import { comparisons, connections, diffResults } from '../../db/schema.js';
 import { sourceFromConnectionRow } from '../../jobs/shared/source-from-connection.js';
 import { publicProcedure, router } from '../trpc.js';
-
-const TypeFilterSchema = z
-  .object({
-    types: z.array(z.string()).optional(),
-    namePatterns: z.array(z.string()).optional(),
-    modifiedSince: z.string().optional(),
-    excludeNamespaces: z.array(z.string()).optional(),
-  })
-  .optional();
+import { OptionalTypeFilterSchema as TypeFilterSchema } from './shared/type-filter-schema.js';
 
 export interface CompareJobPayload {
   readonly comparisonId: string;
@@ -164,6 +156,18 @@ export const comparisonsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const comparisonId = nanoid();
       const now = new Date().toISOString();
+      // Applies the product default explicitly, at the one boundary a
+      // `TypeFilter` is actually constructed for a real comparison — see
+      // `withManagedPackageDefault`'s doc comment in `@vibeset/core`.
+      // Managed-package components are excluded unless the caller (the
+      // wizard, a saved filter set, a direct API call) explicitly set
+      // `excludeManagedPackages: false`. The EFFECTIVE filter (default
+      // applied) is what gets persisted to `filterJson` and handed to the
+      // job, so a comparison's stored record always shows what was
+      // actually compared — never a silent default the UI/API consumer
+      // can't see.
+      const effectiveFilter = withManagedPackageDefault(input.filter ?? {});
+
       ctx.db
         .insert(comparisons)
         .values({
@@ -171,7 +175,7 @@ export const comparisonsRouter = router({
           name: input.name,
           leftConnectionId: input.leftConnectionId,
           rightConnectionId: input.rightConnectionId,
-          filterJson: input.filter ? JSON.stringify(input.filter) : null,
+          filterJson: JSON.stringify(effectiveFilter),
           status: 'pending',
           createdAt: now,
         })
@@ -183,7 +187,7 @@ export const comparisonsRouter = router({
           comparisonId,
           leftConnectionId: input.leftConnectionId,
           rightConnectionId: input.rightConnectionId,
-          filter: input.filter,
+          filter: effectiveFilter,
         } satisfies CompareJobPayload,
       });
 

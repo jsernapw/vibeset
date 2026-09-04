@@ -154,6 +154,173 @@ describe('OrgSource.inventory', () => {
     expect(fullNames).not.toContain('TranslationsFoo');
     expect(warnings.some((w) => w.includes('Translations') && w.includes('zero components'))).toBe(true);
   });
+
+  // Regression coverage for the confirmed Workstream C bug: `OrgSource.inventory()`
+  // resolved `filter.types` (via `resolveInventoryTypes`) but never consulted
+  // `namePatterns`/`modifiedSince`/`modifiedBy`/`excludeNamespaces`/
+  // `excludeManagedPackages` at all, so an excluded component still became an
+  // inventory entry and still reached a retrieve chunk — the actual reason a
+  // corrupt `omnistudio__` StaticResource could break a whole comparison even
+  // with `excludeNamespaces: ['omnistudio']` set. Every test below asserts the
+  // excluded component never appears in `inventory().entries` in the first
+  // place (not just "gets filtered out later"), which is what keeps it out of
+  // `RetrievalPlanner`'s `toFetch`/chunks — see `retrieval/planner.ts`, which
+  // builds its plan entirely from `source.inventory(filter)`'s return value.
+  describe('pre-retrieve filtering (namePatterns / modifiedSince / modifiedBy / excludeNamespaces / excludeManagedPackages)', () => {
+    it('applies namePatterns before an entry is ever added to the inventory', async () => {
+      const { connection } = fakeConnection((queries) =>
+        queries.map((q) => ({ type: q.type, fullName: q.type === 'ApexClass' ? 'FooController' : 'BarController', lastModifiedDate: '2026-01-01T00:00:00.000Z' })),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      const inventory = await source.inventory({ types: ['ApexClass'], namePatterns: ['Bar*'] });
+
+      expect(inventory.entries).toHaveLength(0);
+    });
+
+    it('applies modifiedSince before an entry is ever added to the inventory', async () => {
+      const { connection } = fakeConnection((queries) =>
+        queries.map((q) => ({ type: q.type, fullName: `${q.type}Foo`, lastModifiedDate: '2020-01-01T00:00:00.000Z' })),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      const inventory = await source.inventory({ types: ['ApexClass'], modifiedSince: '2026-01-01T00:00:00.000Z' });
+
+      expect(inventory.entries).toHaveLength(0);
+    });
+
+    it('applies modifiedBy against lastModifiedByName before an entry is ever added to the inventory', async () => {
+      const { connection } = fakeConnection((queries) =>
+        queries.map((q) => ({
+          type: q.type,
+          fullName: `${q.type}Foo`,
+          lastModifiedDate: '2026-01-01T00:00:00.000Z',
+          lastModifiedByName: 'alice@example.com',
+        })),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      const excluded = await source.inventory({ types: ['ApexClass'], modifiedBy: ['bob@example.com'] });
+      expect(excluded.entries).toHaveLength(0);
+
+      const included = await source.inventory({ types: ['ApexClass'], modifiedBy: ['alice@example.com'] });
+      expect(included.entries).toHaveLength(1);
+    });
+
+    it('THE CONFIRMED BUG: excludeNamespaces keeps a namespaced component out of the inventory entirely, using listMetadata\'s own namespacePrefix — not fullName parsing', async () => {
+      const { connection } = fakeConnection((queries) =>
+        queries.map((q) => ({
+          type: q.type,
+          fullName: 'CorruptResource', // deliberately does NOT look namespaced by fullName alone
+          lastModifiedDate: '2026-01-01T00:00:00.000Z',
+          namespacePrefix: 'omnistudio',
+          manageableState: 'installed',
+        })),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      const inventory = await source.inventory({ types: ['StaticResource'], excludeNamespaces: ['omnistudio'] });
+
+      // Never even reaches `entries` — this is what keeps a retrieve chunk
+      // (and, in the real bug, a BadZipFile-throwing convert) from ever
+      // being built for this component.
+      expect(inventory.entries).toHaveLength(0);
+    });
+
+    it('excludeManagedPackages excludes an installed managed-package component but keeps an unmanaged one', async () => {
+      // A single `listMetadata` query for one type can return MANY
+      // components — simulate ARM DEV's real shape (a mix of `omnistudio__`
+      // managed classes and plain unmanaged ones in the SAME response).
+      const { connection } = fakeConnection((queries) =>
+        queries.flatMap((q) => [
+          {
+            type: q.type,
+            fullName: 'omnistudio__Managed',
+            lastModifiedDate: '2026-01-01T00:00:00.000Z',
+            namespacePrefix: 'omnistudio',
+            manageableState: 'installed',
+          },
+          {
+            type: q.type,
+            fullName: 'PlainClass',
+            lastModifiedDate: '2026-01-01T00:00:00.000Z',
+            namespacePrefix: '',
+            manageableState: 'unmanaged',
+          },
+        ]),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      const inventory = await source.inventory({ types: ['ApexClass'], excludeManagedPackages: true });
+
+      expect(inventory.entries).toHaveLength(1);
+      expect(inventory.entries[0]?.key.fullName).toBe('PlainClass');
+    });
+
+    it('excludeManagedPackages does NOT exclude the org\'s own namespaced-but-unmanaged metadata (a packaging/dev org)', async () => {
+      const { connection } = fakeConnection((queries) =>
+        queries.map((q) => ({
+          type: q.type,
+          fullName: 'myns__DevClass',
+          lastModifiedDate: '2026-01-01T00:00:00.000Z',
+          namespacePrefix: 'myns',
+          manageableState: 'unmanaged',
+        })),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      const inventory = await source.inventory({ types: ['ApexClass'], excludeManagedPackages: true });
+
+      expect(inventory.entries).toHaveLength(1);
+      expect(inventory.entries[0]?.key.fullName).toBe('myns__DevClass');
+    });
+
+    it('records namespacePrefix on entries that are NOT excluded, for UI labeling', async () => {
+      const { connection } = fakeConnection((queries) =>
+        queries.map((q) => ({
+          type: q.type,
+          fullName: 'omnistudio__Kept',
+          lastModifiedDate: '2026-01-01T00:00:00.000Z',
+          namespacePrefix: 'omnistudio',
+          manageableState: 'installed',
+        })),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      // Explicitly opted IN to managed packages — no exclusion.
+      const inventory = await source.inventory({ types: ['ApexClass'] });
+
+      expect(inventory.entries).toHaveLength(1);
+      expect(inventory.entries[0]?.namespacePrefix).toBe('omnistudio');
+    });
+
+    it('applies excludeNamespaces to folder-based type content (Report/Dashboard/EmailTemplate/Document), not just ordinary listable types', async () => {
+      const { connection } = fakeConnection((queries) =>
+        queries.flatMap((q) => {
+          if (q.type === 'ReportFolder') {
+            return [{ type: 'ReportFolder', fullName: 'MyReportsFolder', lastModifiedDate: '2026-01-01T00:00:00.000Z' }];
+          }
+          if (q.type === 'Report' && q.folder === 'MyReportsFolder') {
+            return [
+              {
+                type: 'Report',
+                fullName: 'MyReportsFolder/OmniReport',
+                lastModifiedDate: '2026-01-02T00:00:00.000Z',
+                namespacePrefix: 'omnistudio',
+                manageableState: 'installed',
+              },
+            ];
+          }
+          return [];
+        }),
+      );
+      const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+      const inventory = await source.inventory({ types: ['Report'], excludeManagedPackages: true });
+
+      expect(inventory.entries.map((e) => e.key.fullName)).not.toContain('MyReportsFolder/OmniReport');
+    });
+  });
 });
 
 describe('OrgSource.healthCheck', () => {

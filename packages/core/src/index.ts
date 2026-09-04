@@ -3,6 +3,8 @@ export * from './sources/org-source.js';
 export * from './sources/sfdx-project-source.js';
 export * from './sources/git-ref-source.js';
 export * from './sources/registry.js';
+export * from './sources/type-filter.js';
+export * from './sources/filter-set.js';
 export * from './hash.js';
 export * from './diff/index.js';
 export * from './store/index.js';

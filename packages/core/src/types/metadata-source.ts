@@ -57,6 +57,20 @@ export interface ComponentInventoryEntry {
   readonly id?: string;
   /** `true` when the source could not resolve a real timestamp (falls back to "always refetch"). */
   readonly lastModifiedDateUnknown?: boolean;
+  /**
+   * The managed-package namespace this component belongs to, when known.
+   * For `OrgSource` this is `listMetadata`'s own `FileProperties.namespacePrefix`
+   * — an authoritative API signal, never derived from `fullName`
+   * string-parsing (see `sources/type-filter.ts`'s namespace resolution).
+   * `undefined` means "confirmed no namespace" for org entries that
+   * carried the signal, or "source doesn't report this" for filesystem
+   * sources, which fall back to a `fullName` heuristic purely for
+   * filtering and don't populate this field. Present mainly so a
+   * filtered-IN namespaced component (the user explicitly chose to
+   * include managed packages) can still be labeled as such by the UI
+   * without a second lookup.
+   */
+  readonly namespacePrefix?: string;
 }
 
 export interface ComponentInventory {
@@ -66,7 +80,21 @@ export interface ComponentInventory {
   readonly folders?: string[];
 }
 
-/** Filters what `inventory()` enumerates. Empty/omitted arrays mean "no restriction". */
+/**
+ * Filters what `inventory()` enumerates. Empty/omitted arrays mean "no
+ * restriction" — this is the mechanical, source-of-truth contract every
+ * `MetadataSource.inventory()` implementation must honor by filtering
+ * BEFORE a component ever becomes an inventory entry, so an excluded
+ * component never reaches a retrieve chunk (see `sources/type-filter.ts`'s
+ * `matchesTypeFilter`, the shared predicate all three source kinds use).
+ *
+ * Any *product default* (e.g. "hide managed packages unless the user asks
+ * for them") is a policy decision layered on top by whatever builds a
+ * filter for a real comparison — see `sources/type-filter.ts`'s
+ * `withManagedPackageDefault` — never baked in silently here, so an
+ * omitted/empty `TypeFilter` always means literally "no restriction" at
+ * this layer.
+ */
 export interface TypeFilter {
   /** Metadata type names to include; omit for "all registered types". */
   readonly types?: string[];
@@ -74,8 +102,33 @@ export interface TypeFilter {
   readonly namePatterns?: string[];
   /** Only include components modified on/after this ISO date. */
   readonly modifiedSince?: string;
-  /** Exclude components in these namespaces (managed packages). */
+  /**
+   * Only include components last modified by one of these identities.
+   * Matched against whatever authorship signal the source can supply:
+   * `OrgSource` matches `listMetadata`'s `lastModifiedByName` (falling back
+   * to `lastModifiedById`); `GitRefSource` matches the last commit's
+   * author name or email for the component's files. `SfdxProjectSource`
+   * cannot support this (plain disk has no authorship concept) and ignores
+   * it — filtering by `modifiedBy` against a local project inventory is a
+   * silent no-op, not an error.
+   */
+  readonly modifiedBy?: string[];
+  /** Exclude components in these specific namespaces (managed packages). */
   readonly excludeNamespaces?: string[];
+  /**
+   * Exclude every namespaced (managed-package) component, regardless of
+   * which namespace — the coarse "hide all managed packages" switch,
+   * independent of (and applied in addition to) `excludeNamespaces`
+   * naming specific ones. Namespace detection prefers each source's own
+   * authoritative signal over `fullName` heuristics where one exists (see
+   * `sources/type-filter.ts`). For `OrgSource` specifically, a component
+   * is treated as "someone else's managed package" only when it both
+   * carries a `namespacePrefix` AND its `manageableState` is not
+   * `'unmanaged'` — a packaging/dev org's OWN namespaced-but-editable
+   * metadata reports `manageableState: 'unmanaged'` too, and must not be
+   * excluded by this switch.
+   */
+  readonly excludeManagedPackages?: boolean;
 }
 
 /**

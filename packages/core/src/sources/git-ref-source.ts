@@ -20,6 +20,13 @@ interface SfdxProjectJson {
   readonly packageDirectories?: ReadonlyArray<{ path: string }>;
 }
 
+/** See `GitRefSource.pathHistory`'s doc comment for why `order` (not `date`) is what breaks ties between two files last touched within the same git-timestamp second. */
+interface PathHistoryEntry {
+  readonly date: string;
+  readonly author: string;
+  readonly order: number;
+}
+
 export interface GitRefSourceDeps {
   readonly registry?: RegistryAccess;
   /** Node's `fs` module by default; injectable for tests that want an in-memory filesystem. */
@@ -45,7 +52,7 @@ export class GitRefSource implements MetadataSource {
 
   private readonly registry: RegistryAccess;
   private readonly fsClient: typeof fs;
-  private pathDatesPromise: Promise<Map<string, string>> | undefined;
+  private pathHistoryPromise: Promise<Map<string, PathHistoryEntry>> | undefined;
   private resolvedPromise: Promise<{ oid: string; components: SourceComponent[] }> | undefined;
 
   constructor(
@@ -60,28 +67,52 @@ export class GitRefSource implements MetadataSource {
   }
 
   /**
-   * Commit date (ISO-8601) of the most recent commit reachable from `ref`
-   * that changed each path, as a single pass over history. Memoized per
-   * instance — `inventory()` and `materialize()` both need it, and re-
-   * walking the whole ref history per call would defeat the point.
+   * Commit date (ISO-8601), author (name, falling back to email), and
+   * newest-first walk position of the most recent commit reachable from
+   * `ref` that changed each path, as a single pass over history. Memoized
+   * per instance — `inventory()` needs all three, and re-walking the whole
+   * ref history per call (or once per signal) would defeat the point.
+   * Author support (`TypeFilter.modifiedBy`) is feasible here — unlike
+   * `SfdxProjectSource`, which reads plain disk with no VCS concept of
+   * authorship — because `isomorphic-git`'s commit walk already carries
+   * `commit.author` for free alongside the commit date this method already
+   * had to read.
+   *
+   * `order` (this walk's 0-based index, smaller = newer) exists because git
+   * commit timestamps only have SECOND resolution: two files last touched
+   * by two different commits within the same second produce IDENTICAL
+   * `date` strings, and `inventory()` picks "the most recently touched
+   * file" for a multi-file component (e.g. `.cls` + `.cls-meta.xml`) by
+   * comparing dates. A strict string/date comparison can't break that tie
+   * and would non-deterministically attribute the wrong commit's `author`
+   * (silently correct for `date`, since a tied date string reads the same
+   * either way, but a REAL bug for `author`, which can genuinely differ
+   * between the tied commits). `order` is unambiguous — it reflects the
+   * actual commit graph traversal, not wall-clock resolution — so
+   * `inventory()` uses it, not `date`, to pick which file's author (and,
+   * for consistency, date) wins a tie.
    */
-  private async pathLastModifiedDates(): Promise<Map<string, string>> {
-    this.pathDatesPromise ??= (async () => {
+  private async pathHistory(): Promise<Map<string, PathHistoryEntry>> {
+    this.pathHistoryPromise ??= (async () => {
       const commits = await git.log({ fs: this.fsClient, dir: this.repoPath, ref: this.ref, includeChanges: true });
-      const dates = new Map<string, string>();
+      const history = new Map<string, PathHistoryEntry>();
       // Newest-first: the first commit we see touching a path is its most recent modification.
+      let order = 0;
       for (const { commit } of commits) {
         const changes = commit.changes ?? [];
         if (changes.length === 0) continue;
-        const iso = new Date(commit.committer.timestamp * 1000).toISOString();
+        const date = new Date(commit.committer.timestamp * 1000).toISOString();
+        const author = commit.author.name || commit.author.email;
         for (const change of changes) {
           const filepath = change[2];
-          if (filepath && !dates.has(filepath)) dates.set(filepath, iso);
+          if (!filepath || history.has(filepath)) continue;
+          history.set(filepath, { date, author, order });
         }
+        order += 1;
       }
-      return dates;
+      return history;
     })();
-    return this.pathDatesPromise;
+    return this.pathHistoryPromise;
   }
 
   private async resolveComponents(): Promise<{ oid: string; components: SourceComponent[] }> {
@@ -138,20 +169,37 @@ export class GitRefSource implements MetadataSource {
   }
 
   async inventory(filter: TypeFilter): Promise<ComponentInventory> {
-    const [{ components }, dates] = await Promise.all([this.resolveComponents(), this.pathLastModifiedDates()]);
+    const [{ components }, history] = await Promise.all([this.resolveComponents(), this.pathHistory()]);
     const entries: ComponentInventoryEntry[] = [];
 
     for (const component of components) {
       if (component.type.isAddressable === false) continue;
 
       let latest: string | undefined;
+      let latestAuthor: string | undefined;
+      let latestOrder: number | undefined;
       for (const file of componentFiles(component)) {
         const relPath = toGitPath(relative(this.repoPath, file));
-        const date = dates.get(relPath);
-        if (date && (!latest || date > latest)) latest = date;
+        const entry = history.get(relPath);
+        // Tie-break on walk `order` (smaller = newer), not the `date`
+        // string — see `pathHistory`'s doc comment: two files last touched
+        // within the same git-timestamp second produce equal `date`
+        // strings, which would otherwise make this comparison silently
+        // fall through to "whichever file iterated first wins", attributing
+        // the wrong commit's author non-deterministically.
+        if (entry && (latestOrder === undefined || entry.order < latestOrder)) {
+          latest = entry.date;
+          latestAuthor = entry.author;
+          latestOrder = entry.order;
+        }
       }
 
-      if (!matchesTypeFilter({ type: component.type.name, fullName: component.fullName, lastModifiedDate: latest }, filter)) {
+      if (
+        !matchesTypeFilter(
+          { type: component.type.name, fullName: component.fullName, lastModifiedDate: latest, modifiedBy: latestAuthor },
+          filter,
+        )
+      ) {
         continue;
       }
 

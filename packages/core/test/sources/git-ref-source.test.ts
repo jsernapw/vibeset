@@ -101,6 +101,31 @@ describe('GitRefSource.inventory', () => {
     const stillThere = await readFile(join(repoDir, 'force-app/main/default/classes/FooController.cls'), 'utf8');
     expect(stillThere).toContain('void m()');
   });
+
+  it("supports TypeFilter.modifiedBy from the last commit author touching each component's files (feasible here, unlike SfdxProjectSource)", async () => {
+    // The shared beforeEach's last commit ("tweak FooController body") used
+    // author 'Test' <test@example.com> for every commit. Add one more
+    // commit, by a DIFFERENT author, that only touches FooController again.
+    await writeFileDeep(
+      join(repoDir, 'force-app/main/default/classes/FooController.cls'),
+      'public class FooController { void m2() {} }',
+    );
+    await git.add({ fs, dir: repoDir, filepath: '.' });
+    await git.commit({
+      fs,
+      dir: repoDir,
+      message: 'alice touches FooController',
+      author: { name: 'alice', email: 'alice@example.com' },
+    });
+
+    const source = new GitRefSource('git-1', 'main @ HEAD', repoDir, 'main');
+
+    const excluded = await source.inventory({ types: ['ApexClass'], modifiedBy: ['someone-else@example.com'] });
+    expect(excluded.entries).toHaveLength(0);
+
+    const includedByName = await source.inventory({ types: ['ApexClass'], modifiedBy: ['alice'] });
+    expect(includedByName.entries.map((e) => e.key.fullName)).toContain('FooController');
+  });
 });
 
 describe('GitRefSource.materialize', () => {
