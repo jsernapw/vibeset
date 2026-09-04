@@ -5,6 +5,7 @@ export * from './sources/git-ref-source.js';
 export * from './sources/registry.js';
 export * from './hash.js';
 export * from './diff/index.js';
+export * from './merge/index.js';
 export * from './store/index.js';
 export * from './retrieval/index.js';
 export * from './util/component-key.js';

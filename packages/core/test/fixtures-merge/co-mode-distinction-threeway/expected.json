@@ -1,0 +1,41 @@
+{
+  "mode": "three-way",
+  "entries": [
+    {
+      "path": "fields.Contested__c",
+      "key": "Contested__c",
+      "status": "take-left",
+      "base": {
+        "fullName": "Contested__c",
+        "type": "Text"
+      },
+      "left": {
+        "fullName": "Contested__c",
+        "type": "LongTextArea"
+      },
+      "right": {
+        "fullName": "Contested__c",
+        "type": "Text"
+      },
+      "resolved": {
+        "fullName": "Contested__c",
+        "type": "LongTextArea"
+      }
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "unchanged",
+      "base": "Account",
+      "left": "Account",
+      "right": "Account",
+      "resolved": "Account"
+    }
+  ],
+  "summary": {
+    "unchanged": 1,
+    "take-left": 1,
+    "take-right": 0,
+    "conflict": 0
+  }
+}

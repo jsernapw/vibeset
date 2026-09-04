@@ -1,0 +1,8 @@
+{
+  "type": "Profile",
+  "mode": "three-way",
+  "profileCoverage": {
+    "left": { "mode": "scoped", "retrievedComponents": [] },
+    "right": { "mode": "full" }
+  }
+}

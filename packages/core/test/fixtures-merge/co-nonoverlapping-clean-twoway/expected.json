@@ -1,0 +1,45 @@
+{
+  "mode": "two-way",
+  "entries": [
+    {
+      "path": "fields.FieldA__c",
+      "key": "FieldA__c",
+      "status": "take-left",
+      "left": {
+        "fullName": "FieldA__c",
+        "type": "Text"
+      },
+      "resolved": {
+        "fullName": "FieldA__c",
+        "type": "Text"
+      }
+    },
+    {
+      "path": "fields.FieldB__c",
+      "key": "FieldB__c",
+      "status": "take-right",
+      "right": {
+        "fullName": "FieldB__c",
+        "type": "Checkbox"
+      },
+      "resolved": {
+        "fullName": "FieldB__c",
+        "type": "Checkbox"
+      }
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "unchanged",
+      "left": "Account",
+      "right": "Account",
+      "resolved": "Account"
+    }
+  ],
+  "summary": {
+    "unchanged": 1,
+    "take-left": 1,
+    "take-right": 1,
+    "conflict": 0
+  }
+}

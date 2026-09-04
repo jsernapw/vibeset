@@ -1,0 +1,37 @@
+{
+  "mode": "three-way",
+  "entries": [
+    {
+      "path": "fields.Shared__c",
+      "key": "Shared__c",
+      "status": "conflict",
+      "base": {
+        "fullName": "Shared__c",
+        "type": "Text"
+      },
+      "left": {
+        "fullName": "Shared__c",
+        "type": "LongTextArea"
+      },
+      "right": {
+        "fullName": "Shared__c",
+        "type": "Checkbox"
+      }
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "unchanged",
+      "base": "Account",
+      "left": "Account",
+      "right": "Account",
+      "resolved": "Account"
+    }
+  ],
+  "summary": {
+    "unchanged": 1,
+    "take-left": 0,
+    "take-right": 0,
+    "conflict": 1
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "mode": "three-way",
+  "entries": [
+    {
+      "path": "description",
+      "key": "description",
+      "status": "unchanged"
+    },
+    {
+      "path": "custom",
+      "key": "custom",
+      "status": "unchanged"
+    },
+    {
+      "path": "userLicense",
+      "key": "userLicense",
+      "status": "unchanged"
+    },
+    {
+      "path": "classAccesses.Sensitive",
+      "key": "Sensitive",
+      "status": "unchanged",
+      "base": {
+        "apexClass": "Sensitive",
+        "enabled": "true"
+      },
+      "right": {
+        "apexClass": "Sensitive",
+        "enabled": "true"
+      },
+      "resolved": {
+        "apexClass": "Sensitive",
+        "enabled": "true"
+      }
+    }
+  ],
+  "summary": {
+    "unchanged": 4,
+    "take-left": 0,
+    "take-right": 0,
+    "conflict": 0
+  }
+}

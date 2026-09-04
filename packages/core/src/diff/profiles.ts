@@ -73,7 +73,7 @@ export const FULL_COVERAGE_CONTEXT: ProfileDiffContext = {
   right: { mode: 'full' },
 };
 
-interface PermissionCollectionSpec {
+export interface PermissionCollectionSpec {
   readonly tag: string;
   readonly identityField: string;
   /** Metadata type the identity field's value refers to, used to build the `refType:fullName` string checked against `retrievedComponents`. */
@@ -94,7 +94,7 @@ interface PermissionCollectionSpec {
  * a new permission kind — see natural-keys.ts for the parallel table this
  * mirrors for ordering/matching.
  */
-const PERMISSION_COLLECTIONS: readonly PermissionCollectionSpec[] = [
+export const PERMISSION_COLLECTIONS: readonly PermissionCollectionSpec[] = [
   { tag: 'fieldPermissions', identityField: 'field', refType: 'CustomField' },
   { tag: 'objectPermissions', identityField: 'object', refType: 'CustomObject' },
   { tag: 'classAccesses', identityField: 'apexClass', refType: 'ApexClass' },
@@ -145,31 +145,61 @@ const PERMISSION_COLLECTIONS: readonly PermissionCollectionSpec[] = [
  * here. `fullName` is excluded: it's the component's own identity (already
  * carried by the caller's `ComponentKey`), not a diffable property.
  */
-const ALWAYS_DIFFED_SCALAR_FIELDS: Record<ProfileLikeType, readonly string[]> = {
+export const ALWAYS_DIFFED_SCALAR_FIELDS: Record<ProfileLikeType, readonly string[]> = {
   Profile: ['description', 'custom', 'userLicense'],
   PermissionSet: ['description', 'hasActivationRequired', 'label', 'license'],
 };
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
+/**
+ * Parses and canonicalizes one side's raw Profile/PermissionSet XML into the
+ * unwrapped root object `diffProfileLike` walks — `{}` when the side is
+ * absent. Exported so the merge engine can independently parse a THIRD side
+ * (a git-ref merge base) through the exact same normalization path this
+ * file uses for left/right, rather than re-deriving it.
+ */
+export function parseProfileLikeRoot(
+  type: ProfileLikeType,
+  side: string | undefined,
+): Record<string, unknown> {
+  return side === undefined
+    ? {}
+    : unwrapRoot(stripVolatileAndSort(type, '', parseXml(side)) as Record<string, unknown>);
+}
+
+export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-function asArray(value: unknown): unknown[] {
+export function asArray(value: unknown): unknown[] {
   if (value === undefined) return [];
   return Array.isArray(value) ? value : [value];
 }
 
-function isCovered(coverage: SideCoverage, ref: string, alwaysComplete: boolean): boolean {
+/**
+ * Exported (additive) so the merge engine (`merge/profile-merge.ts`) can
+ * reuse the exact same retrieve-pairing coverage rule for a third side
+ * (base) that this file's own pairwise `diffOnePermissionCollection` never
+ * needed to reason about. Keep this the single source of truth for "what
+ * does coverage mean for one ref" — merge must never grow a second,
+ * possibly-drifted copy of this rule.
+ */
+export function isCovered(coverage: SideCoverage, ref: string, alwaysComplete: boolean): boolean {
   if (alwaysComplete) return true;
   if (coverage.mode === 'full') return true;
   return coverage.retrievedComponents.has(ref);
 }
 
-function joinPath(parent: string, segment: string): string {
+export function joinPath(parent: string, segment: string): string {
   return parent ? `${parent}.${segment}` : segment;
 }
 
-function deepEqual(a: unknown, b: unknown): boolean {
+/**
+ * Structural equality used throughout profile/permission-set diffing (and,
+ * additively, by the merge engine to decide whether a side actually changed
+ * an entry relative to another side). Exported so merge doesn't need a
+ * second implementation that could silently drift from this one.
+ */
+export function deepEqual(a: unknown, b: unknown): boolean {
   const ua = unwrapCdata(a);
   const ub = unwrapCdata(b);
   if (Array.isArray(ua) || Array.isArray(ub)) {
@@ -293,14 +323,8 @@ export function diffProfileLike(
   right: string | undefined,
   ctx: ProfileDiffContext,
 ): DiffEntry[] {
-  const leftRoot =
-    left === undefined
-      ? {}
-      : unwrapRoot(stripVolatileAndSort(type, '', parseXml(left)) as Record<string, unknown>);
-  const rightRoot =
-    right === undefined
-      ? {}
-      : unwrapRoot(stripVolatileAndSort(type, '', parseXml(right)) as Record<string, unknown>);
+  const leftRoot = parseProfileLikeRoot(type, left);
+  const rightRoot = parseProfileLikeRoot(type, right);
 
   const scalarEntries: DiffEntry[] = ALWAYS_DIFFED_SCALAR_FIELDS[type].map((field) => {
     const l = unwrapCdata(leftRoot[field]);
