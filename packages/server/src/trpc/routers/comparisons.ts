@@ -88,6 +88,8 @@ export function createCompareJobHandler(deps: { readonly db: Db; readonly snapsh
         rightSha256: r.rightSha256,
         entriesJson: r.entries ? JSON.stringify(r.entries) : null,
         textDiffJson: r.textDiff ? JSON.stringify(r.textDiff) : null,
+        binary: r.binary ?? null,
+        unreadableJson: r.unreadable ? JSON.stringify(r.unreadable) : null,
       }));
 
       if (rows.length > 0) {
@@ -98,7 +100,20 @@ export function createCompareJobHandler(deps: { readonly db: Db; readonly snapsh
 
       deps.db
         .update(comparisons)
-        .set({ status: 'completed', completedAt: new Date().toISOString(), cacheStatsJson: JSON.stringify(cacheStats) })
+        .set({
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          cacheStatsJson: JSON.stringify(cacheStats),
+          // See `ComparisonResult.profileCoverage`'s doc comment in
+          // `@vibeset/core`: captured verbatim from the SAME diff run that
+          // just produced `rows` above, so a later merge of one of these
+          // components (`trpc/routers/merge.ts`) reuses the EXACT
+          // retrieve-pairing coverage the diff used rather than recomputing
+          // it from a possibly-since-changed org. Omitted entirely (column
+          // left untouched, not overwritten with null) when this comparison
+          // had no Profile/PermissionSet at all.
+          ...(result.profileCoverage ? { profileCoverageJson: JSON.stringify(result.profileCoverage) } : {}),
+        })
         .where(eq(comparisons.id, comparisonId))
         .run();
 
@@ -139,6 +154,11 @@ function toResultRow(row: typeof diffResults.$inferSelect) {
     rightSha256: row.rightSha256,
     entries: row.entriesJson ? (JSON.parse(row.entriesJson) as DiffEntry[]) : undefined,
     textDiff: row.textDiffJson ? (JSON.parse(row.textDiffJson) as TextDiffHunk[]) : undefined,
+    binary: row.binary ?? undefined,
+    // See `DiffResult.unreadable`'s doc comment in `@vibeset/core`: MUST
+    // survive to here so the UI can render "could not compare" instead of
+    // trusting `status` at face value for a binary result.
+    unreadable: row.unreadableJson ? (JSON.parse(row.unreadableJson) as { left?: boolean; right?: boolean }) : undefined,
   };
 }
 

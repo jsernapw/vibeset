@@ -1,4 +1,5 @@
 import type { ComponentKey } from './metadata-source.js';
+import type { SideCoverage } from '../diff/profiles.js';
 
 export type DiffStatus = 'new' | 'changed' | 'deleted' | 'identical';
 
@@ -48,6 +49,34 @@ export interface DiffResult {
    * non-binary type, matching this field's additive nature.
    */
   readonly binary?: boolean;
+  /**
+   * Set only for a `binary: true` result whose `status` could NOT be
+   * honestly derived from a real content-hash comparison, because one or
+   * both sides' bytes could not be read/materialized — e.g. SDR's
+   * `StaticResourceMetadataTransformer` throwing `BadZipFile` for certain
+   * `omnistudio__` StaticResources (see `sources/org-source.ts`'s
+   * `convertWithIsolation` doc comment), or a race/symlink failure reading
+   * the body file. `{ left: true }` / `{ right: true }` name which side(s)
+   * failed; a side that materialized fine is omitted, not `false`.
+   *
+   * THE INVARIANT THIS FIELD EXISTS TO PROTECT: `status: 'identical'` on a
+   * binary result is a claim that both sides' bytes were actually read and
+   * hashed equal. Before this field existed, `diffBinaryComponent` reported
+   * `'identical'` whenever both sides resolved to `undefined` — collapsing
+   * "this component genuinely doesn't exist on either side" (a legitimate
+   * `'identical'`) together with "it exists on both sides but neither
+   * side's content could be read" (NOT identical — unknown, and reporting
+   * it as identical is a silent lie that could hide a real difference or
+   * mask data loss on a tool that feeds production deployments). `DiffStatus`
+   * has no "unknown" member (see that type's callers throughout `diff/` and
+   * `compare/`), so this case reports `status: 'changed'` — the safer of
+   * the two visible options, since it prompts a human to look rather than
+   * silently suppressing the discrepancy — with `unreadable` set so any
+   * consumer (this comparison's own summary counts, the tRPC API, the UI)
+   * can render "could not compare" instead of a normal binary-changed diff.
+   * A consumer that ignores this field still lands on the safe side.
+   */
+  readonly unreadable?: { readonly left?: boolean; readonly right?: boolean };
 }
 
 export interface TextDiffHunk {
@@ -63,4 +92,22 @@ export interface ComparisonResult {
   readonly comparisonId: string;
   readonly results: DiffResult[];
   readonly summary: Record<DiffStatus, number>;
+  /**
+   * The EXACT `SideCoverage` pair `ComparisonEngine.diffAll` computed (via
+   * `compare/coverage.ts`'s `coverageForProfileLike`) for each
+   * Profile/PermissionSet component in `results`, keyed by
+   * `componentKeyString`. Absent for every other type.
+   *
+   * This exists so a later merge of the SAME component can reuse the
+   * identical coverage the original diff used, rather than recomputing it
+   * from a second, potentially-stale retrieval plan (the org may have
+   * changed between the comparison and the merge request, or the
+   * connection may no longer resolve at all) — merge and diff can then
+   * never disagree about what an unretrieved permission means, and the
+   * merge route never has to guess. See `merge/profile-merge.ts`'s
+   * `MergeProfileCoverage`/`requireMergeProfileCoverage`: the hazard is
+   * identical to `ProfileDiffContext`'s — an unretrieved entry must never
+   * be treated as a deletion to merge away.
+   */
+  readonly profileCoverage?: Readonly<Record<string, { readonly left: SideCoverage; readonly right: SideCoverage }>>;
 }

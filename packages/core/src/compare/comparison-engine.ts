@@ -79,14 +79,19 @@ export class ComparisonEngine {
     options.signal?.throwIfAborted();
 
     emit(90, 'Diffing components...');
-    const results = await this.diffAll(left.kind, right.kind, plan, leftContents, rightContents, options.signal);
+    const { results, profileCoverage } = await this.diffAll(left.kind, right.kind, plan, leftContents, rightContents, options.signal);
 
     const summary: Record<DiffStatus, number> = { new: 0, changed: 0, deleted: 0, identical: 0 };
     for (const r of results) summary[r.status] += 1;
 
     emit(100, `Comparison complete: ${results.length} component(s) (${summary.new} new, ${summary.changed} changed, ${summary.deleted} deleted, ${summary.identical} identical).`);
 
-    return { comparisonId: options.comparisonId, results, summary };
+    return {
+      comparisonId: options.comparisonId,
+      results,
+      summary,
+      ...(Object.keys(profileCoverage).length > 0 ? { profileCoverage } : {}),
+    };
   }
 
   /**
@@ -164,7 +169,7 @@ export class ComparisonEngine {
     leftFresh: ReadonlyMap<string, string>,
     rightFresh: ReadonlyMap<string, string>,
     signal: AbortSignal | undefined,
-  ): Promise<DiffResult[]> {
+  ): Promise<{ results: DiffResult[]; profileCoverage: Record<string, ProfileDiffContext> }> {
     const leftKeys = new Map<string, ComponentKey>();
     for (const e of plan.left.entries) leftKeys.set(componentKeyString(e.key), e.key);
     const rightKeys = new Map<string, ComponentKey>();
@@ -176,12 +181,15 @@ export class ComparisonEngine {
     const rightCoverage = buildSideCoverageContext(rightKind, plan.right);
 
     const results: DiffResult[] = [];
+    const profileCoverage: Record<string, ProfileDiffContext> = {};
     let i = 0;
     for (const ks of allKeyStrings) {
       if (i % 200 === 0) signal?.throwIfAborted();
       i += 1;
 
       const key = leftKeys.get(ks) ?? rightKeys.get(ks)!;
+      const leftPresent = leftKeys.has(ks);
+      const rightPresent = rightKeys.has(ks);
       const leftSha = plan.left.cacheHitShas.get(ks);
       const rightSha = plan.right.cacheHitShas.get(ks);
 
@@ -193,8 +201,8 @@ export class ComparisonEngine {
         continue;
       }
 
-      const left = leftKeys.has(ks) ? await this.resolveContent(ks, leftFresh, leftSha) : undefined;
-      const right = rightKeys.has(ks) ? await this.resolveContent(ks, rightFresh, rightSha) : undefined;
+      const left = leftPresent ? await this.resolveContent(ks, leftFresh, leftSha) : undefined;
+      const right = rightPresent ? await this.resolveContent(ks, rightFresh, rightSha) : undefined;
 
       // Binary-bodied types (StaticResource, Document) never go through
       // `diffComponent` — that dispatch's non-text-body branch assumes XML
@@ -204,7 +212,13 @@ export class ComparisonEngine {
       // "diffing" them is exactly a hash comparison — see
       // `diffBinaryComponent` below.
       if (BINARY_BODY_TYPES.has(key.type)) {
-        results.push(diffBinaryComponent(key, left, right));
+        results.push(
+          diffBinaryComponent(
+            key,
+            { present: leftPresent, content: left },
+            { present: rightPresent, content: right },
+          ),
+        );
         continue;
       }
 
@@ -215,10 +229,12 @@ export class ComparisonEngine {
           }
         : undefined;
 
+      if (profileContext) profileCoverage[ks] = profileContext;
+
       results.push(diffComponent(key, left, right, profileContext));
     }
 
-    return results;
+    return { results, profileCoverage };
   }
 
   private async resolveContent(
@@ -237,28 +253,88 @@ export class ComparisonEngine {
 }
 
 /**
+ * One binary-bodied component's resolved state on one side of a
+ * comparison. `present` comes from that side's INVENTORY (was this key
+ * actually listed by `MetadataSource.inventory()`?), independent of
+ * whether materializing its content later succeeded — this is exactly the
+ * distinction `diffBinaryComponent` needs and the caller (`diffAll`)
+ * already has both halves of: `leftKeys.has(ks)`/`rightKeys.has(ks)` for
+ * `present`, `resolveContent(...)`'s result for `content`. `present: true`
+ * with `content: undefined` means the component genuinely exists on this
+ * side but its bytes could not be read/converted (e.g. SDR's `BadZipFile`
+ * — see `DiffResult.unreadable`'s doc comment) — NOT "doesn't exist here",
+ * which is `present: false`. Conflating those two was the root cause of
+ * the false-negative this type exists to prevent.
+ */
+interface BinarySideState {
+  readonly present: boolean;
+  readonly content: string | undefined;
+}
+
+/**
  * The binary-type counterpart to `diff/dispatch.ts`'s `diffComponent`:
  * same four-way new/deleted/changed/identical status derivation, but by
  * content-hash equality rather than a semantic tree or line diff, since
- * `left`/`right` here are `encodeBinaryContent`'s opaque encoding (base64
+ * resolved content here is `encodeBinaryContent`'s opaque encoding (base64
  * body + metadata sidecar), not something a differ can meaningfully render
  * hunks or entries for. `binary: true` is the signal the UI needs to
  * render "binary content changed" instead of attempting a tree/line diff —
  * see the doc comment on `DiffResult.binary`.
+ *
+ * Existence (`new`/`deleted`/the both-absent `identical`) is derived from
+ * `present` alone — each side's own inventory listing, unaffected by
+ * whether content later resolved — so a materialize failure can never
+ * fabricate a spurious add/delete for a component that was actually on
+ * both sides the whole time. Only once both sides are confirmed present
+ * does this fall through to a real hash comparison; if either side's
+ * content is unreadable at that point, `status: 'identical'` is exactly
+ * the lie this function used to tell (see `DiffResult.unreadable`'s doc
+ * comment for the full hazard writeup) — so that combination is called
+ * out via `unreadable` instead, with `status: 'changed'` as the closest
+ * honest fixed-vocabulary answer (the safe side to fail toward: it
+ * prompts review instead of suppressing a possible real difference).
  */
-function diffBinaryComponent(key: ComponentKey, left: string | undefined, right: string | undefined): DiffResult {
-  if (left === undefined && right === undefined) {
+function diffBinaryComponent(key: ComponentKey, left: BinarySideState, right: BinarySideState): DiffResult {
+  const leftUnreadable = left.present && left.content === undefined;
+  const rightUnreadable = right.present && right.content === undefined;
+
+  if (!left.present && !right.present) {
     return { key, status: 'identical', binary: true };
   }
-  if (left !== undefined && right === undefined) {
-    return { key, status: 'deleted', binary: true, leftSha256: sha256Hex(left) };
+  if (left.present && !right.present) {
+    return {
+      key,
+      status: 'deleted',
+      binary: true,
+      ...(leftUnreadable ? { unreadable: { left: true } } : { leftSha256: sha256Hex(left.content as string) }),
+    };
   }
-  if (left === undefined && right !== undefined) {
-    return { key, status: 'new', binary: true, rightSha256: sha256Hex(right) };
+  if (!left.present && right.present) {
+    return {
+      key,
+      status: 'new',
+      binary: true,
+      ...(rightUnreadable ? { unreadable: { right: true } } : { rightSha256: sha256Hex(right.content as string) }),
+    };
   }
 
-  const leftSha256 = sha256Hex(left as string);
-  const rightSha256 = sha256Hex(right as string);
+  // Both sides present. If either is unreadable, a hash comparison can't
+  // honestly happen at all — report the ones we *could* hash and flag the
+  // rest, rather than defaulting to 'identical' (see the function doc
+  // comment above).
+  if (leftUnreadable || rightUnreadable) {
+    return {
+      key,
+      status: 'changed',
+      binary: true,
+      unreadable: { left: leftUnreadable || undefined, right: rightUnreadable || undefined },
+      ...(leftUnreadable ? {} : { leftSha256: sha256Hex(left.content as string) }),
+      ...(rightUnreadable ? {} : { rightSha256: sha256Hex(right.content as string) }),
+    };
+  }
+
+  const leftSha256 = sha256Hex(left.content as string);
+  const rightSha256 = sha256Hex(right.content as string);
   return {
     key,
     status: leftSha256 === rightSha256 ? 'identical' : 'changed',
