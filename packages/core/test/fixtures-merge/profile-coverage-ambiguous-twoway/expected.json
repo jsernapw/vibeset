@@ -1,0 +1,39 @@
+{
+  "mode": "two-way",
+  "entries": [
+    {
+      "path": "description",
+      "key": "description",
+      "status": "unchanged"
+    },
+    {
+      "path": "custom",
+      "key": "custom",
+      "status": "unchanged"
+    },
+    {
+      "path": "userLicense",
+      "key": "userLicense",
+      "status": "unchanged"
+    },
+    {
+      "path": "classAccesses.NotRetrieved",
+      "key": "NotRetrieved",
+      "status": "unchanged",
+      "left": {
+        "apexClass": "NotRetrieved",
+        "enabled": "true"
+      },
+      "resolved": {
+        "apexClass": "NotRetrieved",
+        "enabled": "true"
+      }
+    }
+  ],
+  "summary": {
+    "unchanged": 4,
+    "take-left": 0,
+    "take-right": 0,
+    "conflict": 0
+  }
+}

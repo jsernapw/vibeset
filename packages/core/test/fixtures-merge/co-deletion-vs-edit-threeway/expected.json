@@ -1,0 +1,33 @@
+{
+  "mode": "three-way",
+  "entries": [
+    {
+      "path": "fields.Contested__c",
+      "key": "Contested__c",
+      "status": "conflict",
+      "base": {
+        "fullName": "Contested__c",
+        "type": "Text"
+      },
+      "right": {
+        "fullName": "Contested__c",
+        "type": "LongTextArea"
+      }
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "unchanged",
+      "base": "Account",
+      "left": "Account",
+      "right": "Account",
+      "resolved": "Account"
+    }
+  ],
+  "summary": {
+    "unchanged": 1,
+    "take-left": 0,
+    "take-right": 0,
+    "conflict": 1
+  }
+}

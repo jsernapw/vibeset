@@ -1,0 +1,50 @@
+{
+  "mode": "three-way",
+  "entries": [
+    {
+      "path": "fields.DiffAdd__c",
+      "key": "DiffAdd__c",
+      "status": "conflict",
+      "left": {
+        "fullName": "DiffAdd__c",
+        "type": "Text"
+      },
+      "right": {
+        "fullName": "DiffAdd__c",
+        "type": "Checkbox"
+      }
+    },
+    {
+      "path": "fields.SameAdd__c",
+      "key": "SameAdd__c",
+      "status": "unchanged",
+      "left": {
+        "fullName": "SameAdd__c",
+        "type": "Text"
+      },
+      "right": {
+        "fullName": "SameAdd__c",
+        "type": "Text"
+      },
+      "resolved": {
+        "fullName": "SameAdd__c",
+        "type": "Text"
+      }
+    },
+    {
+      "path": "label",
+      "key": "label",
+      "status": "unchanged",
+      "base": "Account",
+      "left": "Account",
+      "right": "Account",
+      "resolved": "Account"
+    }
+  ],
+  "summary": {
+    "unchanged": 2,
+    "take-left": 0,
+    "take-right": 0,
+    "conflict": 1
+  }
+}
