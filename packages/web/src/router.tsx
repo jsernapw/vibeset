@@ -12,6 +12,7 @@ import { DeploymentsPage } from '@/routes/deployments';
 import { DeploymentReviewPage } from '@/routes/deployments.new';
 import { DeploymentDetailPage } from '@/routes/deployments.$deploymentId';
 import { HistoryPage } from '@/routes/history';
+import { FiltersPage } from '@/routes/filters';
 import { useComparisonFlowStore } from '@/lib/comparison-flow-store';
 
 const rootRoute = createRootRoute({
@@ -106,6 +107,12 @@ const historyRoute = createRoute({
   component: HistoryPage,
 });
 
+const filtersRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/filters',
+  component: FiltersPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   connectionsRoute,
@@ -118,6 +125,7 @@ const routeTree = rootRoute.addChildren([
   deploymentNewRoute,
   deploymentDetailRoute,
   historyRoute,
+  filtersRoute,
 ]);
 
 export const router = createRouter({ routeTree });

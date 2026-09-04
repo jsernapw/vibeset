@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { AlertTriangle, Plus, Save, Search, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Plus, Search, X } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { deleteFilterSet, loadFilterSets, saveFilterSet, type SavedFilterSet } from '@/lib/filter-sets';
 import { splitTypesForScope } from '@/lib/type-selection';
 
 const ROW_HEIGHT = 30;
@@ -123,15 +121,8 @@ export function TypeFilterPanel({
   error?: Error | null;
   onRetry?: () => void;
 }) {
-  const [savedSets, setSavedSets] = useState<SavedFilterSet[]>([]);
-  const [saveName, setSaveName] = useState('');
-  const [showSave, setShowSave] = useState(false);
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState<Scope>('curated');
-
-  useEffect(() => {
-    setSavedSets(loadFilterSets());
-  }, []);
 
   const scopeTypes = scope === 'curated' ? curatedTypes : allTypes;
   const { selected, available } = splitTypesForScope({ allTypes, scopeTypes, selectedTypes, search });
@@ -141,73 +132,11 @@ export function TypeFilterPanel({
   const addAll = () => onChange([...selectedTypes, ...available]);
   const clearAll = () => onChange([]);
 
-  const applySet = (id: string) => {
-    const set = savedSets.find((s) => s.id === id);
-    if (set) onChange(set.filter.types ?? []);
-  };
-
-  const handleSave = () => {
-    if (!saveName.trim()) return;
-    saveFilterSet(saveName.trim(), { types: [...selectedTypes] });
-    setSavedSets(loadFilterSets());
-    setSaveName('');
-    setShowSave(false);
-  };
-
   const noCommonMatches = scope === 'curated' && search.trim().length > 0 && available.length === 0 && allTypes.length > curatedTypes.length;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <Label>Metadata types</Label>
-        <div className="flex items-center gap-2">
-          {savedSets.length > 0 && (
-            <Select onValueChange={applySet}>
-              <SelectTrigger className="h-7 w-40 text-xs">
-                <SelectValue placeholder="Load filter set..." />
-              </SelectTrigger>
-              <SelectContent>
-                {savedSets.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    <span className="flex w-full items-center justify-between gap-2">
-                      {s.name}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteFilterSet(s.id);
-                          setSavedSets(loadFilterSets());
-                        }}
-                        className="text-neutral-400 hover:text-red-600"
-                        aria-label={`Delete ${s.name}`}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Button variant="outline" size="sm" onClick={() => setShowSave((v) => !v)} disabled={isLoading || !!error}>
-            <Save className="h-3.5 w-3.5" /> Save set
-          </Button>
-        </div>
-      </div>
-
-      {showSave && (
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Filter set name..."
-            value={saveName}
-            onChange={(e) => setSaveName(e.target.value)}
-            className="h-8 max-w-56"
-          />
-          <Button size="sm" onClick={handleSave} disabled={!saveName.trim()}>
-            Save
-          </Button>
-        </div>
-      )}
+      <Label>Metadata types</Label>
 
       {error ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-red-200 px-6 py-10 text-center dark:border-red-900">
