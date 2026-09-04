@@ -24,6 +24,7 @@ import {
   resolveInventoryTypes,
   withConcurrency,
 } from './registry.js';
+import { matchesTypeFilter } from './type-filter.js';
 
 /**
  * The subset of `FileProperties` (jsforce's `listMetadata` response row)
@@ -36,6 +37,26 @@ export interface FilePropertiesLike {
   readonly fullName: string;
   readonly lastModifiedDate: string;
   readonly id?: string;
+  /**
+   * The managed-package namespace this component belongs to, or `''`/
+   * `undefined` for none — `listMetadata`'s own signal, preferred over
+   * parsing `fullName` (see `sources/type-filter.ts`). Real orgs return
+   * `''` (not `undefined`) for unnamespaced components; both are treated
+   * as "no namespace" by `resolveNamespace`.
+   */
+  readonly namespacePrefix?: string;
+  /**
+   * `'unmanaged'` for the org's own metadata (including its own dev/
+   * packaging namespace, if it has one) — anything else (`'installed'`,
+   * `'released'`, `'deprecated'`, `'deprecatedEditable'`,
+   * `'installedEditable'`, `'beta'`, `'deleted'`) means this component
+   * belongs to another, installed managed package. See
+   * `TypeFilter.excludeManagedPackages`'s doc comment for why this
+   * distinction matters.
+   */
+  readonly manageableState?: string;
+  readonly lastModifiedByName?: string;
+  readonly lastModifiedById?: string;
 }
 
 export interface RetrieveAndConvertResult {
@@ -218,7 +239,9 @@ export class OrgSource implements MetadataSource {
 
     if (normalTypes.length > 0) {
       const props = await listBatched(normalTypes.map((t) => ({ type: t.name })));
-      for (const p of props) entries.push(toInventoryEntry(p));
+      for (const p of props) {
+        if (matchesFilter(p, filter)) entries.push(toInventoryEntry(p));
+      }
     }
 
     if (folderTypes.length > 0) {
@@ -249,10 +272,19 @@ export class OrgSource implements MetadataSource {
         }
       }
       const contentProps = await listBatched(folderContentQueries);
-      for (const p of contentProps) entries.push(toInventoryEntry(p));
+      for (const p of contentProps) {
+        if (matchesFilter(p, filter)) entries.push(toInventoryEntry(p));
+      }
     }
 
+    // Singleton containers and StandardValueSet names carry no `listMetadata`
+    // row (no `namespacePrefix`/`manageableState`/author signal to give
+    // `matchesTypeFilter`) — `types` is already applied via
+    // `resolveInventoryTypes` above, but `namePatterns` can still usefully
+    // restrict which of these are included, so still route through the
+    // shared predicate rather than pushing unconditionally.
     for (const t of singletonTypes) {
+      if (!matchesTypeFilter({ type: t.name, fullName: t.name }, filter)) continue;
       entries.push({
         key: { type: t.name, fullName: t.name },
         lastModifiedDate: '',
@@ -263,6 +295,7 @@ export class OrgSource implements MetadataSource {
     if (standardValueSetRequested) {
       const names = await loadStandardValueSetNames();
       for (const name of names) {
+        if (!matchesTypeFilter({ type: STANDARD_VALUE_SET_TYPE, fullName: name }, filter)) continue;
         entries.push({
           key: { type: STANDARD_VALUE_SET_TYPE, fullName: name },
           lastModifiedDate: '',
@@ -649,8 +682,43 @@ export async function convertWithIsolation<T>(
   }
 }
 
+/**
+ * The pre-retrieve filter gate for every `listMetadata`-sourced entry —
+ * THIS is the fix for the confirmed bug (see the module's task brief):
+ * previously `OrgSource.inventory()` resolved `filter.types` (via
+ * `resolveInventoryTypes`) but never consulted `namePatterns`,
+ * `modifiedSince`, `modifiedBy`, `excludeNamespaces`, or
+ * `excludeManagedPackages` at all, so an excluded component (e.g. a
+ * corrupt `omnistudio__` `StaticResource`) still became an inventory entry
+ * and still reached a retrieve chunk. Routes through the same
+ * `matchesTypeFilter` predicate `SfdxProjectSource`/`GitRefSource` already
+ * used correctly, passing the Metadata API's own `namespacePrefix`/
+ * `manageableState`/`lastModifiedByName` signals so namespace and
+ * authorship filtering are authoritative here rather than falling back to
+ * `fullName` heuristics.
+ */
+function matchesFilter(p: FilePropertiesLike, filter: TypeFilter): boolean {
+  return matchesTypeFilter(
+    {
+      type: p.type,
+      fullName: p.fullName,
+      lastModifiedDate: p.lastModifiedDate,
+      namespacePrefix: p.namespacePrefix ?? '',
+      manageableState: p.manageableState,
+      modifiedBy: p.lastModifiedByName ?? p.lastModifiedById,
+    },
+    filter,
+  );
+}
+
 function toInventoryEntry(p: FilePropertiesLike): ComponentInventoryEntry {
-  return { key: { type: p.type, fullName: p.fullName }, lastModifiedDate: p.lastModifiedDate, id: p.id };
+  const namespacePrefix = p.namespacePrefix ?? '';
+  return {
+    key: { type: p.type, fullName: p.fullName },
+    lastModifiedDate: p.lastModifiedDate,
+    id: p.id,
+    namespacePrefix: namespacePrefix === '' ? undefined : namespacePrefix,
+  };
 }
 
 async function mktempDir(prefix: string): Promise<string> {

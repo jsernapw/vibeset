@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ComparisonEngine } from '../../src/compare/comparison-engine.js';
 import { InMemorySnapshotStore } from '../../src/store/snapshot-store.js';
 import { componentKeyString } from '../../src/util/component-key.js';
+import { matchesTypeFilter } from '../../src/sources/type-filter.js';
 import type {
   ComponentInventory,
   ComponentKey,
@@ -32,8 +33,14 @@ class FakeOrgSource implements MetadataSource {
   ) {}
 
   async inventory(filter: TypeFilter): Promise<ComponentInventory> {
+    // Routes through the SAME `matchesTypeFilter` predicate `OrgSource`
+    // uses (fullName-heuristic namespace detection, since this fake has no
+    // `namespacePrefix` API signal to pass) so tests against this fake can
+    // exercise `excludeNamespaces`/`excludeManagedPackages`, not just
+    // `types` — needed for the Profile-pairing-under-namespace-filtering
+    // safety test below.
     const entries = [...this.components.values()]
-      .filter((c) => !filter.types || filter.types.length === 0 || filter.types.includes(c.key.type))
+      .filter((c) => matchesTypeFilter({ type: c.key.type, fullName: c.key.fullName, lastModifiedDate: c.lastModifiedDate }, filter))
       .map((c) => ({ key: c.key, lastModifiedDate: c.lastModifiedDate }));
     return { sourceId: this.id, entries };
   }
@@ -222,5 +229,91 @@ describe('ComparisonEngine', () => {
     const classAccesses = admin.entries?.find((e) => e.key === 'classAccesses');
     const fooEntry = classAccesses?.children?.find((e) => e.key === 'Foo');
     expect(fooEntry?.status).toBe('deleted');
+  });
+
+  it('NAMESPACE FILTERING + PROFILE PAIRING: excluding a managed-package ApexClass does not report a spurious permission deletion for it', async () => {
+    // Same hazard as the "SCOPED ORG COMPARISON" test above, but driven by
+    // `excludeManagedPackages` (Phase 2 Workstream C) instead of a narrow
+    // `filter.types` — this is the real-world shape the fix has to get
+    // right: a Profile references BOTH a managed-package class (excluded
+    // by namespace) and an ordinary unmanaged class (kept). Since the
+    // namespaced class is filtered out at `inventory()` — never reaching
+    // `toFetch`, per the actual bug fix — `retrieval/chunking.ts` only
+    // pairs the Profile with whatever PROFILE_PAIRED_TYPES components
+    // actually survived the filter (here: just `PlainClass`), and
+    // `compare/coverage.ts`'s SCOPED coverage must therefore treat the
+    // excluded class's entry as ambiguous (not a genuine deletion) exactly
+    // as it already does for a `filter.types`-narrowed comparison.
+    const store = new InMemorySnapshotStore();
+    const leftProfile = profileXml(withClassAccess('omnistudio__ManagedClass'), withClassAccess('PlainClass'));
+    // Right's retrieve was paired only with `PlainClass` (the excluded
+    // `omnistudio__ManagedClass` was never in the request), so its content
+    // legitimately has no classAccesses entry for the managed class at all.
+    const rightProfile = profileXml(withClassAccess('PlainClass'));
+
+    const leftComponents = new Map([
+      [componentKeyString({ type: 'Profile', fullName: 'Admin' }), { key: { type: 'Profile', fullName: 'Admin' }, lastModifiedDate: 'd1', content: leftProfile }],
+      [componentKeyString({ type: 'ApexClass', fullName: 'omnistudio__ManagedClass' }), { key: { type: 'ApexClass', fullName: 'omnistudio__ManagedClass' }, lastModifiedDate: 'd1', content: apexClassXml() }],
+      [componentKeyString({ type: 'ApexClass', fullName: 'PlainClass' }), { key: { type: 'ApexClass', fullName: 'PlainClass' }, lastModifiedDate: 'd1', content: apexClassXml() }],
+    ]);
+    const rightComponents = new Map([
+      [componentKeyString({ type: 'Profile', fullName: 'Admin' }), { key: { type: 'Profile', fullName: 'Admin' }, lastModifiedDate: 'd1', content: rightProfile }],
+      [componentKeyString({ type: 'ApexClass', fullName: 'omnistudio__ManagedClass' }), { key: { type: 'ApexClass', fullName: 'omnistudio__ManagedClass' }, lastModifiedDate: 'd1', content: apexClassXml() }],
+      [componentKeyString({ type: 'ApexClass', fullName: 'PlainClass' }), { key: { type: 'ApexClass', fullName: 'PlainClass' }, lastModifiedDate: 'd1', content: apexClassXml() }],
+    ]);
+
+    const left = new FakeOrgSource('left', 'Left Org', leftComponents);
+    const right = new FakeOrgSource('right', 'Right Org', rightComponents);
+
+    const engine = new ComparisonEngine(store);
+    const result = await engine.run(left, right, {
+      comparisonId: 'cmp-ns-scoped',
+      filter: { types: ['Profile', 'ApexClass'], excludeManagedPackages: true },
+    });
+
+    // The excluded class must never appear anywhere in the comparison —
+    // proof it never reached `toFetch`/a retrieve chunk in the first place.
+    expect(result.results.some((r) => r.key.fullName === 'omnistudio__ManagedClass')).toBe(false);
+
+    const admin = result.results.find((r) => r.key.type === 'Profile')!;
+    expect(admin.status).toBe('identical'); // NOT 'changed' from the ambiguous absence
+    const classAccesses = admin.entries?.find((e) => e.key === 'classAccesses');
+    const managedEntry = classAccesses?.children?.find((e) => e.key === 'omnistudio__ManagedClass');
+    expect(managedEntry?.status ?? 'identical').not.toBe('deleted');
+  });
+
+  it('NAMESPACE FILTERING + PROFILE PAIRING, CONTROL CASE: a genuinely revoked entry for a KEPT (unmanaged) class is still reported once excludeManagedPackages narrows only the managed one out', async () => {
+    // Proves the safety fix isn't blanket-suppressing every Profile diff —
+    // only the excluded (managed) class's entries go ambiguous; an entry
+    // for a class that legitimately stayed in scope, and was genuinely
+    // revoked, must still be reported exactly like the pre-existing
+    // CONTROL CASE test above.
+    const store = new InMemorySnapshotStore();
+    const leftProfile = profileXml(withClassAccess('PlainClass'));
+    const rightProfile = profileXml(); // PlainClass access genuinely revoked
+
+    const leftComponents = new Map([
+      [componentKeyString({ type: 'Profile', fullName: 'Admin' }), { key: { type: 'Profile', fullName: 'Admin' }, lastModifiedDate: 'd1', content: leftProfile }],
+      [componentKeyString({ type: 'ApexClass', fullName: 'PlainClass' }), { key: { type: 'ApexClass', fullName: 'PlainClass' }, lastModifiedDate: 'd1', content: apexClassXml() }],
+    ]);
+    const rightComponents = new Map([
+      [componentKeyString({ type: 'Profile', fullName: 'Admin' }), { key: { type: 'Profile', fullName: 'Admin' }, lastModifiedDate: 'd1', content: rightProfile }],
+      [componentKeyString({ type: 'ApexClass', fullName: 'PlainClass' }), { key: { type: 'ApexClass', fullName: 'PlainClass' }, lastModifiedDate: 'd1', content: apexClassXml() }],
+    ]);
+
+    const left = new FakeOrgSource('left', 'Left Org', leftComponents);
+    const right = new FakeOrgSource('right', 'Right Org', rightComponents);
+
+    const engine = new ComparisonEngine(store);
+    const result = await engine.run(left, right, {
+      comparisonId: 'cmp-ns-scoped-control',
+      filter: { types: ['Profile', 'ApexClass'], excludeManagedPackages: true },
+    });
+
+    const admin = result.results.find((r) => r.key.type === 'Profile')!;
+    expect(admin.status).toBe('changed');
+    const classAccesses = admin.entries?.find((e) => e.key === 'classAccesses');
+    const plainEntry = classAccesses?.children?.find((e) => e.key === 'PlainClass');
+    expect(plainEntry?.status).toBe('deleted');
   });
 });
