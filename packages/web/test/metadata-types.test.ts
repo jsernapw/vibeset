@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isBinaryDiffType, isPermissionGridType, isTextDiffType } from '../src/lib/metadata-types';
+import {
+  isBinaryDiffType,
+  isMergeableType,
+  isMergeChildCollectionsUnsupported,
+  isPermissionGridType,
+  isTextDiffType,
+} from '../src/lib/metadata-types';
 
 describe('metadata-types renderer classification', () => {
   it('classifies opaque code-body types as text-diff types', () => {
@@ -28,5 +34,22 @@ describe('metadata-types renderer classification', () => {
       const hits = [isTextDiffType(name), isPermissionGridType(name), isBinaryDiffType(name)].filter(Boolean).length;
       expect(hits, `${name} should match at most one renderer classification`).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('mergeable types are exactly "neither text-diff nor binary" — opaque code bodies and raw bytes have no natural-keyed collections to merge', () => {
+    expect(isMergeableType('Profile')).toBe(true);
+    expect(isMergeableType('PermissionSet')).toBe(true);
+    expect(isMergeableType('CustomObject')).toBe(true);
+    expect(isMergeableType('Flow')).toBe(true);
+    expect(isMergeableType('ApexClass')).toBe(false);
+    expect(isMergeableType('AuraDefinitionBundle')).toBe(false);
+    expect(isMergeableType('StaticResource')).toBe(false);
+    expect(isMergeableType('Document')).toBe(false);
+  });
+
+  it('CustomObject is flagged as merge-child-collections-unsupported and nothing else is', () => {
+    expect(isMergeChildCollectionsUnsupported('CustomObject')).toBe(true);
+    expect(isMergeChildCollectionsUnsupported('Profile')).toBe(false);
+    expect(isMergeChildCollectionsUnsupported('Flow')).toBe(false);
   });
 });
