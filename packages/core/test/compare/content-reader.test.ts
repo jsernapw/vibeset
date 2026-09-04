@@ -1,11 +1,14 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { RegistryAccess } from '@salesforce/source-deploy-retrieve';
 import { describe, expect, it } from 'vitest';
-import { cleanupSourceTree, resolveComponentContents } from '../../src/compare/content-reader.js';
+import { cleanupSourceTree, decomposedChildTypeNames, resolveComponentContents } from '../../src/compare/content-reader.js';
 import { componentKeyString } from '../../src/util/component-key.js';
 import type { SourceTree } from '../../src/types/metadata-source.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Regression coverage for the StaticResource/Document binary-corruption fix
@@ -106,5 +109,119 @@ describe('resolveComponentContents — binary types (StaticResource)', () => {
       await cleanupSourceTree({ sourceId: 'test', rootDir: rootA, files: new Map() });
       await cleanupSourceTree({ sourceId: 'test', rootDir: rootB, files: new Map() });
     }
+  });
+});
+
+/**
+ * Regression coverage for the decomposed-`CustomObject` composition fix.
+ *
+ * `test/fixtures/real-retrieve-account/objects/Account/` is NOT a
+ * hand-written fixture — it is a byte-for-byte copy of a real
+ * `sf project retrieve start -m "CustomObject:Account"` against RCA DEV
+ * (2026-09-04), the exact on-disk shape `OrgSource`'s `MetadataConverter`
+ * produces for a decomposed source-format `CustomObject`: an object-level
+ * shell (`Account.object-meta.xml`, no `<fields>`/`<listViews>`/... tags
+ * at all) plus separate `fields/*.field-meta.xml`, `listViews/
+ * *.listView-meta.xml`, `webLinks/*.webLink-meta.xml` files. This is
+ * deliberate: `merge/generic-merge.ts`'s fixtures are all hand-written
+ * COMPLETE `.object` files (mdapi shape), which is exactly why the bug
+ * this composes for survived undetected — a test fixture in the wrong
+ * shape passes regardless of whether composition works. Using the real
+ * shape here means these tests fail without the `compose` option, the
+ * same way `merge.resolve` silently produced zero `fields.*`/`listViews.*`
+ * merge entries against real orgs before this fix (see
+ * `packages/server/test/perf/real-org-decomposed-merge-check.ts` for the
+ * live end-to-end proof against RCA DEV/ARM DEV).
+ */
+describe('resolveComponentContents — compose (decomposed CustomObject, real retrieved shape)', () => {
+  const FIXTURE_ROOT = join(HERE, '..', 'fixtures', 'real-retrieve-account');
+
+  async function materializedFixtureTree(): Promise<SourceTree> {
+    const rootDir = await mkdtemp(join(tmpdir(), 'vibeset-compose-fixture-'));
+    await cp(FIXTURE_ROOT, rootDir, { recursive: true });
+    return { sourceId: 'test', rootDir, files: new Map() };
+  }
+
+  it('WITHOUT compose: reads only the object-level shell — confirms the bug precondition (no <fields>/<listViews> on a real retrieve)', async () => {
+    const tree = await materializedFixtureTree();
+    try {
+      const key = { type: 'CustomObject', fullName: 'Account' };
+      const resolved = await resolveComponentContents(tree, [key], new RegistryAccess());
+      const content = resolved.get(componentKeyString(key));
+
+      expect(content).toBeDefined();
+      expect(content).not.toContain('<fields>');
+      expect(content).not.toContain('<listViews>');
+      // The shell DOES have object-level settings — proves this is reading
+      // real content, not an empty/missing file.
+      expect(content).toContain('<sharingModel>');
+    } finally {
+      await cleanupSourceTree(tree);
+    }
+  });
+
+  it('WITH compose: recomposes the real retrieved children (fields/listViews/webLinks) into one logical document', async () => {
+    const tree = await materializedFixtureTree();
+    try {
+      const key = { type: 'CustomObject', fullName: 'Account' };
+      const resolved = await resolveComponentContents(tree, [key], new RegistryAccess(), { compose: true });
+      const content = resolved.get(componentKeyString(key));
+      expect(content).toBeDefined();
+
+      // Count what's actually on disk rather than hardcoding a number, so
+      // this test doesn't silently drift from the fixture if it's ever
+      // re-retrieved.
+      const fieldFiles = await readdir(join(FIXTURE_ROOT, 'objects', 'Account', 'fields'));
+      const listViewFiles = await readdir(join(FIXTURE_ROOT, 'objects', 'Account', 'listViews'));
+      const webLinkFiles = await readdir(join(FIXTURE_ROOT, 'objects', 'Account', 'webLinks'));
+
+      const fieldTagCount = (content!.match(/<fields>/g) ?? []).length;
+      const listViewTagCount = (content!.match(/<listViews>/g) ?? []).length;
+      const webLinkTagCount = (content!.match(/<webLinks>/g) ?? []).length;
+
+      expect(fieldTagCount).toBe(fieldFiles.length);
+      expect(listViewTagCount).toBe(listViewFiles.length);
+      expect(webLinkTagCount).toBe(webLinkFiles.length);
+
+      // A specific real field, by name, not just a tag count — proves the
+      // actual child content made it into the composed document, not just
+      // an empty wrapper tag.
+      expect(content).toMatch(/<fields>\s*<fullName>Website<\/fullName>/);
+
+      // The object-level shell content composition started from is still
+      // there too — composing children must not replace or drop it.
+      expect(content).toContain('<sharingModel>');
+    } finally {
+      await cleanupSourceTree(tree);
+    }
+  });
+
+  it('compose is a no-op for a component with no decomposed children present in the tree (nothing to compose)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibeset-compose-nochildren-'));
+    try {
+      const dir = join(root, 'objects', 'Widget__c');
+      await mkdir(dir, { recursive: true });
+      const xml = '<?xml version="1.0" encoding="UTF-8"?>\n<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata"><label>Widget</label></CustomObject>\n';
+      await writeFile(join(dir, 'Widget__c.object-meta.xml'), xml);
+
+      const tree: SourceTree = { sourceId: 'test', rootDir: root, files: new Map() };
+      const key = { type: 'CustomObject', fullName: 'Widget__c' };
+      const resolved = await resolveComponentContents(tree, [key], new RegistryAccess(), { compose: true });
+      expect(resolved.get(componentKeyString(key))).toBe(xml);
+    } finally {
+      await cleanupSourceTree({ sourceId: 'test', rootDir: root, files: new Map() });
+    }
+  });
+
+  it('decomposedChildTypeNames: CustomObject reports its real child types (registry-driven, not a hardcoded list)', () => {
+    const names = decomposedChildTypeNames(new RegistryAccess(), 'CustomObject');
+    expect(names).toBeDefined();
+    expect(names).toEqual(
+      expect.arrayContaining(['CustomField', 'ListView', 'RecordType', 'ValidationRule', 'WebLink', 'BusinessProcess', 'CompactLayout', 'FieldSet', 'Index', 'SharingReason']),
+    );
+  });
+
+  it('decomposedChildTypeNames: undefined for a non-decomposed type (Profile — single complete file, nothing to compose)', () => {
+    expect(decomposedChildTypeNames(new RegistryAccess(), 'Profile')).toBeUndefined();
   });
 });

@@ -82,7 +82,7 @@ export const filtersRouter = router({
         filter: input.filter ?? {},
       };
 
-      const filePath = await saveFilterSet(filterSet, home);
+      const filePath = await saveFilterSet(home, filterSet);
       return { filterSet, filePath };
     }),
 
