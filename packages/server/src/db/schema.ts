@@ -36,6 +36,23 @@ export const comparisons = sqliteTable('comparisons', {
   jobId: text('job_id'),
   /** Phase 1d addition: JSON-serialized `{totalComponents, retrievedComponents, cacheHits, hitRatePercent}` — the DELTA of `SnapshotStore.stats()` observed around this comparison's retrieval (captured before/after in `createCompareJobHandler`), since the store's own `stats()` is a global cumulative counter, not scoped to one comparison. Null until the job completes; null forever for comparisons that failed before reaching that point. */
   cacheStatsJson: text('cache_stats_json'),
+  /**
+   * Phase 2 Workstream B addition (the merge API): JSON-serialized
+   * `Record<componentKeyString, { left: SideCoverage; right: SideCoverage }>`
+   * — the EXACT `MergeProfileCoverage`-shaped retrieve-pairing coverage
+   * `ComparisonEngine.diffAll` computed for every Profile/PermissionSet in
+   * this comparison (see `@vibeset/core`'s `ComparisonResult.profileCoverage`
+   * doc comment for why this must be captured verbatim rather than
+   * recomputed later). Only present for comparisons that included at least
+   * one Profile/PermissionSet result; the merge router
+   * (`trpc/routers/merge.ts`) reads this to drive `mergeComponent` without
+   * ever guessing or defaulting to full coverage. Null for comparisons run
+   * before this column existed — the merge router's `requireMergeProfileCoverage`
+   * call then fails loudly (not silently) for a Profile/PermissionSet on
+   * those older comparisons, same as it always has for any caller that
+   * omits coverage.
+   */
+  profileCoverageJson: text('profile_coverage_json'),
   ...timestamps,
   completedAt: text('completed_at'),
 });
@@ -104,6 +121,18 @@ export const diffResults = sqliteTable(
     rightSha256: text('right_sha256').references(() => componentSnapshots.sha256),
     entriesJson: text('entries_json'),
     textDiffJson: text('text_diff_json'),
+    /** Mirrors `DiffResult.binary` — `true` for binary-bodied types (StaticResource, Document). Previously computed by `ComparisonEngine` but silently dropped before persistence; now stored so the API/UI can tell a binary "changed" from a text/XML one. */
+    binary: integer('binary', { mode: 'boolean' }),
+    /**
+     * Mirrors `DiffResult.unreadable` verbatim (JSON `{left?, right?}` or
+     * null) — see that field's doc comment in `@vibeset/core`'s
+     * `types/diff.ts` for the hazard this exists to surface: without this
+     * column, a binary result's `status: 'changed'`-because-unreadable was
+     * indistinguishable from an ordinary confirmed binary change once it
+     * left `ComparisonEngine` and hit the database, silently losing the
+     * "we could not actually compare this" signal the fix was for.
+     */
+    unreadableJson: text('unreadable_json'),
   },
   (t) => [index('diff_results_comparison_idx').on(t.comparisonId)],
 );
