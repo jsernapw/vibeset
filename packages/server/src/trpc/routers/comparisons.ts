@@ -9,6 +9,7 @@ import { comparisons, connections, diffResults } from '../../db/schema.js';
 import { sourceFromConnectionRow } from '../../jobs/shared/source-from-connection.js';
 import { publicProcedure, router } from '../trpc.js';
 import { OptionalTypeFilterSchema as TypeFilterSchema } from './shared/type-filter-schema.js';
+import { serializeProfileCoverage } from './shared/profile-coverage-json.js';
 
 export interface CompareJobPayload {
   readonly comparisonId: string;
@@ -111,8 +112,14 @@ export function createCompareJobHandler(deps: { readonly db: Db; readonly snapsh
           // retrieve-pairing coverage the diff used rather than recomputing
           // it from a possibly-since-changed org. Omitted entirely (column
           // left untouched, not overwritten with null) when this comparison
-          // had no Profile/PermissionSet at all.
-          ...(result.profileCoverage ? { profileCoverageJson: JSON.stringify(result.profileCoverage) } : {}),
+          // had no Profile/PermissionSet at all. Routed through
+          // `serializeProfileCoverage` rather than a bare `JSON.stringify`
+          // — see that function's doc comment: a `SideCoverage`'s
+          // `retrievedComponents` is a `Set`, which `JSON.stringify` alone
+          // silently flattens to `{}`, corrupting every scoped (non-full)
+          // coverage entry — exactly the org-sourced case this column
+          // exists for.
+          ...(result.profileCoverage ? { profileCoverageJson: JSON.stringify(serializeProfileCoverage(result.profileCoverage)) } : {}),
         })
         .where(eq(comparisons.id, comparisonId))
         .run();

@@ -18,6 +18,7 @@ import type { SnapshotStore } from '@vibeset/core';
 import { comparisons, connections, diffResults } from '../../db/schema.js';
 import { sourceFromConnectionRow } from '../../jobs/shared/source-from-connection.js';
 import { publicProcedure, router } from '../trpc.js';
+import { deserializeProfileCoverage } from './shared/profile-coverage-json.js';
 
 const registry = new RegistryAccess();
 
@@ -170,11 +171,16 @@ export const mergeRouter = router({
           coverage = { left: { mode: 'full' }, right: { mode: 'full' } };
         } else {
           const comparisonRow = ctx.db.select().from(comparisons).where(eq(comparisons.id, input.comparisonId)).get();
-          const stored = comparisonRow?.profileCoverageJson
-            ? (JSON.parse(comparisonRow.profileCoverageJson) as Record<string, MergeProfileCoverage>)
-            : undefined;
-          const entry = stored?.[componentKeyString(key)];
-          if (!entry) {
+          // Parsed as `unknown` and rehydrated per-entry via
+          // `deserializeProfileCoverage`, NOT cast straight to
+          // `MergeProfileCoverage` — a raw `JSON.parse` here would hand
+          // `mergeComponent` a `retrievedComponents` that's a plain array
+          // (or, pre-fix, `{}`), not the `Set` `isCovered`'s `.has(ref)`
+          // call requires. See `shared/profile-coverage-json.ts`'s doc
+          // comment for the full hazard.
+          const stored = comparisonRow?.profileCoverageJson ? (JSON.parse(comparisonRow.profileCoverageJson) as Record<string, Parameters<typeof deserializeProfileCoverage>[0]>) : undefined;
+          const rawEntry = stored?.[componentKeyString(key)];
+          if (!rawEntry) {
             throw new Error(
               `merge.resolve: no recorded retrieve-pairing coverage for ${key.type} "${key.fullName}" in comparison ` +
                 `${input.comparisonId}. This comparison may predate coverage capture, or this component's coverage was ` +
@@ -183,7 +189,7 @@ export const mergeRouter = router({
                 `deploy. Re-run the comparison to capture coverage, then retry.`,
             );
           }
-          coverage = entry;
+          coverage = deserializeProfileCoverage(rawEntry);
         }
       }
 
