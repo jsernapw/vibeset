@@ -47,8 +47,12 @@ describe('metadata-types renderer classification', () => {
     expect(isMergeableType('Document')).toBe(false);
   });
 
-  it('CustomObject is flagged as merge-child-collections-unsupported and nothing else is', () => {
-    expect(isMergeChildCollectionsUnsupported('CustomObject')).toBe(true);
+  // CustomObject was gated here until `content-reader.ts` learned to
+  // recompose decomposed children. Verified against the live orgs before
+  // ungating: a real `merge.resolve` on `Account` returned 43 `fields.*`
+  // and 5 `listViews.*` entries where it previously returned scalars only.
+  it('no type is currently merge-child-collections-unsupported', () => {
+    expect(isMergeChildCollectionsUnsupported('CustomObject')).toBe(false);
     expect(isMergeChildCollectionsUnsupported('Profile')).toBe(false);
     expect(isMergeChildCollectionsUnsupported('Flow')).toBe(false);
   });

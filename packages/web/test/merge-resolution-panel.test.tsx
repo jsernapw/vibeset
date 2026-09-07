@@ -38,13 +38,19 @@ beforeEach(() => {
 });
 
 describe('MergeResolutionPanel', () => {
-  it('CustomObject is gated with an explicit unsupported message and never fires the merge query', () => {
+  // CustomObject was gated here until `content-reader.ts` learned to
+  // recompose decomposed children (its `compose` option). Verified against
+  // the live orgs before ungating: a real `merge.resolve` on `Account`
+  // returned 43 `fields.*` and 5 `listViews.*` entries where it previously
+  // saw the object-level shell only. It is now an ordinary mergeable type.
+  it('CustomObject is no longer gated and does fire the merge query', () => {
     useGitRefConnectionsMock.mockReturnValue({ options: [], isLoading: false });
+    useMergeResolveMock.mockReturnValue(pending());
     render(
       <MergeResolutionPanel comparisonId="cmp-1" resultKey={{ type: 'CustomObject', fullName: 'My_Object__c' }} leftLabel="Target" rightLabel="Source" />,
     );
-    expect(screen.getByText(/not yet supported for CustomObject/i)).toBeInTheDocument();
-    expect(useMergeResolveMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+    expect(screen.queryByText(/not yet supported/i)).not.toBeInTheDocument();
+    expect(useMergeResolveMock).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
   });
 
   it('shows a loading skeleton while the merge query is pending', () => {
