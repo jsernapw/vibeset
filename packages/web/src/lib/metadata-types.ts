@@ -69,27 +69,31 @@ export function isMergeableType(type: string): boolean {
 }
 
 /**
- * CustomObject specifically: SDR's source-format conversion decomposes a
- * CustomObject into separate physical files per child collection
- * (`fields/*.field-meta.xml`, `listViews/*.listView-meta.xml`, ...), but
- * `@vibeset/core`'s `compare/content-reader.ts` currently reads only the
- * object-level shell file back for content resolution — so the string
- * `merge.resolve` hands to `mergeGeneric` for a real, retrieved CustomObject
- * has no `<fields>`/`<listViews>` in it at all. `decomposeGeneric` would
- * then silently produce a merge with only object-level scalar entries
- * (`label`, `sharingModel`, ...) and NO field/list-view entries — which
- * reads as "nothing to merge there" when in fact the child collections were
- * never even looked at. That is a worse UI outcome than an explicit
- * unsupported state, so `components/merge/MergeResolutionPanel.tsx` gates
- * on this set and refuses to call `merge.resolve` for CustomObject at all,
- * rather than rendering a merge that looks complete but silently drops
- * every field-level conflict. This is a backend limitation, not a UI
- * choice — Maximus is fixing `content-reader.ts` to reassemble the
- * decomposed files in parallel with this UI; remove CustomObject from this
- * set once that lands (and a real-org CustomObject merge has been verified
- * to actually carry field/listView entries).
+ * Types whose entry-level merge cannot see their child collections, and so
+ * must be refused outright rather than shown as a merge that looks complete.
+ *
+ * EMPTY, deliberately — the mechanism is kept, the one entry is gone.
+ *
+ * `CustomObject` used to be listed here. SDR decomposes a CustomObject into
+ * separate physical files per child collection (`fields/*.field-meta.xml`,
+ * `listViews/*.listView-meta.xml`, ...), and `content-reader.ts` read back
+ * only the object-level shell — so `merge.resolve` handed `mergeGeneric` a
+ * document with no `<fields>` in it at all, producing a merge with only
+ * scalar entries that read as "nothing to merge there" when the child
+ * collections had never been looked at. Refusing was better than lying.
+ *
+ * `content-reader.ts` now recomposes decomposed children (its `compose`
+ * option, registry-driven via `decomposedChildTypeNames`, so it covers any
+ * decomposed type rather than CustomObject as a special case). Verified
+ * against the live orgs before ungating: a real `merge.resolve` on `Account`
+ * returned 109 entries including 43 `fields.*` and 5 `listViews.*`, where it
+ * previously returned object-level scalars only.
+ *
+ * Kept rather than deleted because this is a real hazard class: if some
+ * future type's content resolution is ever incomplete, refusing here is
+ * still the right answer, and the reasoning above is the argument for why.
  */
-export const MERGE_CHILD_COLLECTIONS_UNSUPPORTED_TYPES = new Set<string>(['CustomObject']);
+export const MERGE_CHILD_COLLECTIONS_UNSUPPORTED_TYPES = new Set<string>();
 
 export function isMergeChildCollectionsUnsupported(type: string): boolean {
   return MERGE_CHILD_COLLECTIONS_UNSUPPORTED_TYPES.has(type);
