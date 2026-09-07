@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Layout xmlns="http://soap.sforce.com/2006/04/metadata">
+    <layoutSections>
+        <label>Information</label>
+        <layoutColumns>
+            <layoutItems>
+                <field>Missing__c</field>
+                <behavior>Edit</behavior>
+            </layoutItems>
+        </layoutColumns>
+    </layoutSections>
+</Layout>

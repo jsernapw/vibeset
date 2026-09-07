@@ -1,0 +1,8 @@
+[
+  {
+    "analyzerId": "coverage/production-run-local-tests-gate",
+    "severity": "error",
+    "key": null,
+    "relatedKeys": null
+  }
+]

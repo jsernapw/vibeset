@@ -15,4 +15,5 @@ export * from './util/binary-content.js';
 export * from './compare/index.js';
 export * from './package/index.js';
 export * from './deploy/index.js';
+export * from './analyzers/index.js';
 export * from './dependencies/index.js';

@@ -1,0 +1,10 @@
+[
+  {
+    "analyzerId": "dependencies/layout-missing-field",
+    "severity": "error",
+    "key": { "type": "Layout", "fullName": "Account-Account Layout" },
+    "relatedKeys": [
+      { "type": "CustomField", "fullName": "Account.Missing__c", "parentFullName": "Account" }
+    ]
+  }
+]

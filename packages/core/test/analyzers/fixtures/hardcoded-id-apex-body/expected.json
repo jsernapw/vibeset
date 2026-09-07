@@ -1,0 +1,8 @@
+[
+  {
+    "analyzerId": "hardcoded-id/apex-body",
+    "severity": "warning",
+    "key": { "type": "ApexClass", "fullName": "Legacy" },
+    "relatedKeys": null
+  }
+]
