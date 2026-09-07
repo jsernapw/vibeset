@@ -5,6 +5,7 @@ import {
   BINARY_BODY_TYPES,
   cleanupSourceTree,
   componentKeyString,
+  decomposedChildTypeNames,
   mergeComponent,
   MERGE_PROFILE_LIKE_TYPES,
   resolveComponentContents,
@@ -12,6 +13,7 @@ import {
   type MergeInput,
   type MergeProfileCoverage,
   type MergeResult,
+  type MetadataSource,
 } from '@vibeset/core';
 import type { Db } from '../../db/client.js';
 import type { SnapshotStore } from '@vibeset/core';
@@ -41,21 +43,106 @@ function findDiffResultRow(db: Db, input: { comparisonId: string; type: string; 
 }
 
 /**
- * Resolves one component's raw content from a `MetadataSource`, for the
- * three-way merge base only — a single-key counterpart to
- * `ComparisonEngine.fetchAndCache`'s per-chunk materialize, since a merge
- * request only ever needs ONE component's base content, not a whole
- * comparison's worth. Read-only: `materialize()` is the same retrieve path
- * every comparison already uses.
+ * Resolves one component's raw content from a `MetadataSource` — a single-
+ * key counterpart to `ComparisonEngine.fetchAndCache`'s per-chunk
+ * materialize, since a merge request only ever needs ONE component's
+ * content, not a whole comparison's worth. Read-only: `materialize()` is
+ * the same retrieve path every comparison already uses.
+ *
+ * DECOMPOSED PARENTS (`CustomObject` and anything else SDR decomposes):
+ * `materialize([key])` alone only copies that key's OWN file(s) — for a
+ * decomposed `CustomObject` that's just the object-level shell, none of
+ * its `CustomField`/`ListView`/... children (see
+ * `sources/flatten-components.ts`'s `componentFiles` doc comment; verified
+ * against a real retrieved `Account` from RCA DEV — the shell file has no
+ * `<fields>` tag at all). So for these types this ALSO looks up the
+ * child keys via a cheap `inventory()` call (matching by the standard
+ * `Parent.Child` dotted `fullName` convention SDR uses for every
+ * decomposed `CustomObject` child — `ComponentInventoryEntry.key
+ * .parentFullName` is NOT reliable here: `OrgSource.inventory()` doesn't
+ * populate it, see `sources/org-source.ts`'s `toInventoryEntry`), pulls
+ * those files down TOGETHER with the parent, and recomposes them via
+ * `resolveComponentContents(..., { compose: true })` — see that option's
+ * doc comment in `@vibeset/core` for why diff/pre-deploy-snapshot
+ * deliberately don't do this and merge does.
+ *
+ * This is a deliberate content-freshness trade-off for decomposed types
+ * ONLY: `merge.resolve`'s non-decomposed path (the common case — Profile,
+ * PermissionSet, ApexClass, ...) still reuses the exact bytes the ORIGINAL
+ * comparison diffed and stored (see the two call sites below), same as
+ * before this fix. For a decomposed parent there is no valid cached
+ * alternative to reuse — the stored diff-time blob is proven incomplete
+ * (shell only), not merely stale — so the choice is between "wrong"
+ * (missing children entirely, the bug this fixes) and "a fresh read of
+ * this side's current state". Fresh is also the more defensible choice for
+ * a merge specifically: resolving a field-level conflict against
+ * definitely-current content is safer than silently merging against
+ * content that might no longer match what's really in the org. The cost
+ * is one extra retrieve per decomposed-type merge request, scoped to
+ * exactly that one component (cheap in practice — see `excludeNamespaces`
+ * and the single-object retrieve timing already established elsewhere in
+ * this codebase).
  */
-async function materializeOneComponent(source: { materialize(keys: ComponentKey[]): Promise<any> }, key: ComponentKey): Promise<string | undefined> {
-  const tree = await source.materialize([key]);
+async function materializeOneComponent(source: MetadataSource, key: ComponentKey): Promise<string | undefined> {
+  const childTypeNames = decomposedChildTypeNames(registry, key.type);
+  if (!childTypeNames) {
+    const tree = await source.materialize([key]);
+    try {
+      const resolved = await resolveComponentContents(tree, [key], registry);
+      return resolved.get(componentKeyString(key));
+    } finally {
+      await cleanupSourceTree(tree);
+    }
+  }
+
+  const childInventory = await source.inventory({ types: childTypeNames });
+  const prefix = `${key.fullName}.`;
+  const childKeys = childInventory.entries.map((e) => e.key).filter((k) => k.fullName.startsWith(prefix));
+
+  const tree = await source.materialize([key, ...childKeys]);
   try {
-    const resolved = await resolveComponentContents(tree, [key], registry);
+    const resolved = await resolveComponentContents(tree, [key], registry, { compose: true });
     return resolved.get(componentKeyString(key));
   } finally {
     await cleanupSourceTree(tree);
   }
+}
+
+/**
+ * Resolves one side's ("left"/"right") content for `mergeInput`.
+ *
+ * Existence is ALWAYS taken from the stored diff result (`sha256` present
+ * or not) — never re-derived live, decomposed type or not: what the merge
+ * treats as "did this exist" must match what the diff showed, or the
+ * whole point of resolving a specific diff result stops holding.
+ *
+ * For a non-decomposed type, content is the stored blob itself — the exact
+ * bytes the original comparison diffed (no re-fetch, no staleness; this is
+ * unchanged from before this fix). For a decomposed type, content is
+ * re-materialized fresh (with composition) from that side's own
+ * connection via `materializeOneComponent` — see its doc comment for why
+ * the stored blob can't be reused here.
+ */
+async function resolveSideContent(
+  db: Db,
+  snapshotStore: SnapshotStore,
+  key: ComponentKey,
+  sha256: string | null,
+  connectionId: string | null | undefined,
+  decomposed: boolean,
+): Promise<string | undefined> {
+  if (!sha256) return undefined;
+  if (!decomposed) return snapshotStore.getBlob(sha256).then((b) => b?.content);
+
+  if (!connectionId) {
+    throw new Error(
+      `merge.resolve: comparison has no connection recorded for this side of ${key.type} "${key.fullName}" — cannot ` +
+        `recompose its decomposed children (fields/listViews/...) without knowing where to re-read them from.`,
+    );
+  }
+  const connRow = db.select().from(connections).where(eq(connections.id, connectionId)).get();
+  if (!connRow) throw new Error(`No connection with id ${connectionId}.`);
+  return materializeOneComponent(sourceFromConnectionRow(connRow), key);
 }
 
 export const mergeRouter = router({
@@ -64,11 +151,22 @@ export const mergeRouter = router({
    * tRPC face of `@vibeset/core`'s `mergeComponent` (Cassia's
    * `merge/dispatch.ts`), the headline differentiator over Gearset's
    * "stop at every conflict" behavior. Deliberately a `query`, not a
-   * `mutation`: this only reads already-stored comparison content
-   * (`diff_results`'/`component_snapshots`' blobs, plus the exact
-   * retrieve-pairing coverage the original comparison computed) and, for
-   * `baseConnectionId`, a read-only git-ref materialize — it has no side
-   * effects and produces the same result given the same inputs.
+   * `mutation`: it never writes anything, and for the common case (a
+   * non-decomposed type — Profile, PermissionSet, ApexClass, ...) it only
+   * reads already-stored comparison content (`diff_results`'/
+   * `component_snapshots`' blobs, plus the exact retrieve-pairing coverage
+   * the original comparison computed), so it produces the same result
+   * given the same inputs. The one exception is a DECOMPOSED type
+   * (`CustomObject` and anything else SDR decomposes into child
+   * components on disk — `fields`/`listViews`/...): `resolveSideContent`
+   * below re-reads that side's current content live via
+   * `materializeOneComponent` instead of the stored blob, because the
+   * stored blob is proven incomplete for these types (object-level shell
+   * only, no children — see that function's doc comment), and for
+   * `baseConnectionId`, a read-only git-ref materialize either way. Still
+   * side-effect-free, but NOT guaranteed idempotent for a decomposed type
+   * if the org has changed between calls — an explicit, documented
+   * trade-off, not an oversight.
    *
    * MODE, ENFORCED, NOT ASSERTED: a comparison is fundamentally two-sided
    * (`comparisons.leftConnectionId`/`rightConnectionId` — there is no
@@ -139,9 +237,15 @@ export const mergeRouter = router({
         );
       }
 
+      // Fetched once, up front — reused below both for decomposed-type
+      // content resolution (needs left/right connection ids) and for
+      // Profile/PermissionSet coverage (needs profileCoverageJson).
+      const comparisonRow = ctx.db.select().from(comparisons).where(eq(comparisons.id, input.comparisonId)).get();
+
+      const decomposedChildren = decomposedChildTypeNames(registry, key.type);
       const [leftContent, rightContent] = await Promise.all([
-        row.leftSha256 ? ctx.snapshotStore.getBlob(row.leftSha256).then((b) => b?.content) : Promise.resolve(undefined),
-        row.rightSha256 ? ctx.snapshotStore.getBlob(row.rightSha256).then((b) => b?.content) : Promise.resolve(undefined),
+        resolveSideContent(ctx.db, ctx.snapshotStore, key, row.leftSha256, comparisonRow?.leftConnectionId, decomposedChildren !== undefined),
+        resolveSideContent(ctx.db, ctx.snapshotStore, key, row.rightSha256, comparisonRow?.rightConnectionId, decomposedChildren !== undefined),
       ]);
 
       let mergeInput: MergeInput;
@@ -170,7 +274,6 @@ export const mergeRouter = router({
           // above for why coverage ambiguity provably cannot matter here.
           coverage = { left: { mode: 'full' }, right: { mode: 'full' } };
         } else {
-          const comparisonRow = ctx.db.select().from(comparisons).where(eq(comparisons.id, input.comparisonId)).get();
           // Parsed as `unknown` and rehydrated per-entry via
           // `deserializeProfileCoverage`, NOT cast straight to
           // `MergeProfileCoverage` — a raw `JSON.parse` here would hand

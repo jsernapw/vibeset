@@ -44,6 +44,28 @@ export interface FilterSet {
   readonly filter: TypeFilter;
 }
 
+/**
+ * Everything `toFilterSet`/`saveFilterSet` need from a caller EXCEPT the
+ * schema version — the version is never something a caller supplies, only
+ * something this module stamps. Mirrors `package/manifest.ts`'s
+ * `toManifest` builder: `PackageManifestComponentEntry`/`DeploymentPackage`
+ * callers never hand-set `vibesetManifestVersion` either, they go through
+ * `toManifest`.
+ */
+export type FilterSetDraft = Omit<FilterSet, 'vibesetFilterSetVersion'>;
+
+/**
+ * The one sanctioned way to produce a `FilterSet` — stamps
+ * `vibesetFilterSetVersion` centrally so no caller (this build's `filters`
+ * router, or any future one) can construct a filter set that
+ * `loadFilterSet` then refuses to read. `saveFilterSet` below routes
+ * through this rather than trusting its `filterSet` argument to already
+ * carry a correct version.
+ */
+export function toFilterSet(draft: FilterSetDraft): FilterSet {
+  return { vibesetFilterSetVersion: FILTER_SET_SCHEMA_VERSION, ...draft };
+}
+
 export function filterSetToYaml(filterSet: FilterSet): string {
   // sortKeys: false preserves the field order declared above (readable,
   // stable diffs) rather than js-yaml's default alphabetical reordering —
@@ -89,10 +111,30 @@ export function filterSetFilePath(vibesetDir: string, id: string): string {
   return join(vibesetDir, 'filter-sets', `${id}.yml`);
 }
 
-export async function saveFilterSet(filterSet: FilterSet, vibesetDir: string): Promise<string> {
-  const filePath = filterSetFilePath(vibesetDir, filterSet.id);
+/**
+ * Writes a filter set to `<vibesetDir>/filter-sets/<id>.yml`. Takes a
+ * `FilterSetDraft` (everything but the version) rather than a full
+ * `FilterSet`, and stamps `vibesetFilterSetVersion` itself via
+ * `toFilterSet` — the actual fix for the save/load asymmetry this module
+ * used to have: a caller that had the version field wrong, stale, or
+ * simply omitted (TypeScript still allows constructing an object of a
+ * wider type — e.g. via a spread that happened to drop it, or a manually
+ * built object cast through `as FilterSet`) could previously write a file
+ * `loadFilterSet` would then throw `Unsupported filter set version
+ * undefined` trying to read back. Now there is no path to that file ever
+ * getting written without a valid version, because this function — not
+ * each caller — is what puts it there.
+ *
+ * `(vibesetDir, filterSet)` parameter order matches `deleteFilterSet`'s
+ * `(vibesetDir, id)` (both "where" before "what") — previously this took
+ * `(filterSet, vibesetDir)`, the one inconsistent signature among this
+ * module's three mutating functions.
+ */
+export async function saveFilterSet(vibesetDir: string, filterSet: FilterSetDraft): Promise<string> {
+  const stamped = toFilterSet(filterSet);
+  const filePath = filterSetFilePath(vibesetDir, stamped.id);
   await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, filterSetToYaml(filterSet), 'utf8');
+  await writeFile(filePath, filterSetToYaml(stamped), 'utf8');
   return filePath;
 }
 
