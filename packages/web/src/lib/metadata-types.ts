@@ -49,3 +49,48 @@ export function isPermissionGridType(type: string): boolean {
 export function isBinaryDiffType(type: string): boolean {
   return BINARY_DIFF_TYPES.has(type);
 }
+
+/**
+ * Types for which entry-level merge (`components/merge/**`) is a coherent
+ * operation at all. Mirrors `merge/decompose.ts`'s (`@vibeset/core`) own
+ * scope: it parses each side as XML and decomposes top-level tags, which
+ * makes no sense for the opaque code bodies `TEXT_DIFF_TYPES` renders via
+ * Monaco (Apex/LWC/Aura/VF have no natural-keyed collections to merge
+ * per-entry) or for `BINARY_DIFF_TYPES`' opaque bytes (`merge.resolve`
+ * hard-errors on those — see its doc comment in
+ * `packages/server/src/trpc/routers/merge.ts`). Everything else —
+ * Profile/PermissionSet via the dedicated grid, CustomObject, Layout, and
+ * every other decomposable XML type via the generic path — is mergeable in
+ * principle, though see `MERGE_CHILD_COLLECTIONS_UNSUPPORTED_TYPES` below
+ * for the one known gap.
+ */
+export function isMergeableType(type: string): boolean {
+  return !isTextDiffType(type) && !isBinaryDiffType(type);
+}
+
+/**
+ * CustomObject specifically: SDR's source-format conversion decomposes a
+ * CustomObject into separate physical files per child collection
+ * (`fields/*.field-meta.xml`, `listViews/*.listView-meta.xml`, ...), but
+ * `@vibeset/core`'s `compare/content-reader.ts` currently reads only the
+ * object-level shell file back for content resolution — so the string
+ * `merge.resolve` hands to `mergeGeneric` for a real, retrieved CustomObject
+ * has no `<fields>`/`<listViews>` in it at all. `decomposeGeneric` would
+ * then silently produce a merge with only object-level scalar entries
+ * (`label`, `sharingModel`, ...) and NO field/list-view entries — which
+ * reads as "nothing to merge there" when in fact the child collections were
+ * never even looked at. That is a worse UI outcome than an explicit
+ * unsupported state, so `components/merge/MergeResolutionPanel.tsx` gates
+ * on this set and refuses to call `merge.resolve` for CustomObject at all,
+ * rather than rendering a merge that looks complete but silently drops
+ * every field-level conflict. This is a backend limitation, not a UI
+ * choice — Maximus is fixing `content-reader.ts` to reassemble the
+ * decomposed files in parallel with this UI; remove CustomObject from this
+ * set once that lands (and a real-org CustomObject merge has been verified
+ * to actually carry field/listView entries).
+ */
+export const MERGE_CHILD_COLLECTIONS_UNSUPPORTED_TYPES = new Set<string>(['CustomObject']);
+
+export function isMergeChildCollectionsUnsupported(type: string): boolean {
+  return MERGE_CHILD_COLLECTIONS_UNSUPPORTED_TYPES.has(type);
+}

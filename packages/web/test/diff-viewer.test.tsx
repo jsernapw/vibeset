@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { DiffResult } from '@vibeset/core';
 import { DiffViewer } from '../src/components/diff/DiffViewer';
 
 const componentContentMock = vi.fn();
+const useMergeResolveMock = vi.fn();
+const useGitRefConnectionsMock = vi.fn();
 
 vi.mock('@/lib/adapters/comparisons', () => ({
   useComponentContent: (...args: unknown[]) => componentContentMock(...args),
+}));
+
+vi.mock('@/lib/adapters/merge', () => ({
+  useMergeResolve: (...args: unknown[]) => useMergeResolveMock(...args),
+  useGitRefConnections: (...args: unknown[]) => useGitRefConnectionsMock(...args),
 }));
 
 function pendingContent() {
@@ -89,5 +97,64 @@ describe('DiffViewer binary routing (result.binary must win before permission-gr
     componentContentMock.mockReturnValue(pendingContent());
     render(<DiffViewer result={undefined} leftLabel="RCA DEV" rightLabel="ARM DEV" comparisonId="cmp-1" />);
     expect(screen.getByText('No component selected')).toBeInTheDocument();
+  });
+});
+
+describe('DiffViewer merge entry point', () => {
+  it('shows "Resolve conflicts" for a changed, mergeable, non-binary type', () => {
+    componentContentMock.mockReturnValue(pendingContent());
+    const result: DiffResult = { key: { type: 'Profile', fullName: 'Admin' }, status: 'changed' };
+    render(<DiffViewer result={result} leftLabel="Target" rightLabel="Source" comparisonId="cmp-1" />);
+    expect(screen.getByRole('button', { name: /Resolve conflicts/ })).toBeInTheDocument();
+  });
+
+  it('hides the merge entry point for a binary result even if status is changed', () => {
+    componentContentMock.mockReturnValue(pendingContent());
+    const result: DiffResult = { key: { type: 'StaticResource', fullName: 'Widget' }, status: 'changed', binary: true };
+    render(<DiffViewer result={result} leftLabel="Target" rightLabel="Source" comparisonId="cmp-1" />);
+    expect(screen.queryByRole('button', { name: /Resolve conflicts/ })).not.toBeInTheDocument();
+  });
+
+  it('hides the merge entry point for a text-diff type (Apex has no natural-keyed collections to merge)', () => {
+    componentContentMock.mockReturnValue(pendingContent());
+    const result: DiffResult = { key: { type: 'ApexClass', fullName: 'FooController' }, status: 'changed' };
+    render(<DiffViewer result={result} leftLabel="Target" rightLabel="Source" comparisonId="cmp-1" />);
+    expect(screen.queryByRole('button', { name: /Resolve conflicts/ })).not.toBeInTheDocument();
+  });
+
+  it('hides the merge entry point when the component is unchanged (identical) — nothing to resolve', () => {
+    componentContentMock.mockReturnValue(pendingContent());
+    const result: DiffResult = { key: { type: 'Profile', fullName: 'Admin' }, status: 'identical' };
+    render(<DiffViewer result={result} leftLabel="Target" rightLabel="Source" comparisonId="cmp-1" />);
+    expect(screen.queryByRole('button', { name: /Resolve conflicts/ })).not.toBeInTheDocument();
+  });
+
+  it('clicking "Resolve conflicts" swaps the panel to the merge view and back', async () => {
+    componentContentMock.mockReturnValue(pendingContent());
+    useGitRefConnectionsMock.mockReturnValue({ options: [], isLoading: false });
+    useMergeResolveMock.mockReturnValue({
+      data: {
+        comparisonId: 'cmp-1',
+        diffStatus: 'changed',
+        mode: 'two-way',
+        key: { type: 'Profile', fullName: 'Admin' },
+        entries: [],
+        summary: { unchanged: 0, 'take-left': 0, 'take-right': 0, conflict: 0 },
+      },
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    const result: DiffResult = { key: { type: 'Profile', fullName: 'Admin' }, status: 'changed' };
+    render(<DiffViewer result={result} leftLabel="Target" rightLabel="Source" comparisonId="cmp-1" />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /Resolve conflicts/ }));
+    expect(screen.getByTestId('merge-resolution-panel')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Back to diff/ }));
+    expect(screen.queryByTestId('merge-resolution-panel')).not.toBeInTheDocument();
+    expect(screen.getByText('No permission entries')).toBeInTheDocument();
   });
 });

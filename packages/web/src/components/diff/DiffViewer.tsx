@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { GitMerge } from 'lucide-react';
 import type { DiffResult } from '@vibeset/core';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { isPermissionGridType, isTextDiffType } from '@/lib/metadata-types';
+import { isMergeableType, isPermissionGridType, isTextDiffType } from '@/lib/metadata-types';
 import { useComponentContent } from '@/lib/adapters/comparisons';
 import { LazyMonacoDiff } from './LazyMonacoDiff';
 import { SemanticTreeDiff } from './SemanticTreeDiff';
 import { PermissionGrid } from './PermissionGrid';
 import { BinaryDiffSummary } from './BinaryDiffSummary';
+import { MergeResolutionPanel } from '@/components/merge/MergeResolutionPanel';
+import { cn } from '@/lib/utils';
 
 function shortSha(sha?: string): string | undefined {
   return sha ? sha.slice(0, 10) : undefined;
@@ -35,6 +38,7 @@ export function DiffViewer({
   comparisonId: string | undefined;
 }) {
   const [gridSelected, setGridSelected] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'diff' | 'merge'>('diff');
 
   // Real retrieved body content, resolved from the content-addressed snapshot
   // store. Only fetched for the opaque code types Monaco renders; the XML
@@ -44,9 +48,23 @@ export function DiffViewer({
   const wantsBody = !!result && !result.binary && isTextDiffType(result.key.type);
   const content = useComponentContent(comparisonId, wantsBody ? result.key : undefined);
 
+  // Switching to a different selected component/comparison should land back
+  // on the diff, not silently keep showing a merge panel for whatever was
+  // previously selected under a now-stale key.
+  useEffect(() => {
+    setViewMode('diff');
+  }, [comparisonId, result?.key.type, result?.key.fullName, result?.key.parentFullName]);
+
   if (!result) {
     return <EmptyState title="No component selected" description="Choose a row from the results tree to view its diff." />;
   }
+
+  // Merge only makes sense where entry-level decomposition applies at all
+  // (see `isMergeableType`'s doc comment) and where there is actually
+  // something to reconcile — a `changed` component with content on both
+  // sides. `new`/`deleted`/`identical` have no ambiguity for a human to
+  // resolve, and binary content has its own hard-error path server-side.
+  const canMerge = !result.binary && isMergeableType(result.key.type) && result.status === 'changed';
 
   const toggle = (path: string) => {
     setGridSelected((prev) => {
@@ -73,14 +91,31 @@ export function DiffViewer({
         <Badge variant="outline">{result.key.type}</Badge>
         <span className="truncate font-mono text-sm font-medium">{result.key.fullName}</span>
         <Badge variant={result.status}>{result.status}</Badge>
+        {canMerge && (
+          <button
+            type="button"
+            onClick={() => setViewMode((m) => (m === 'diff' ? 'merge' : 'diff'))}
+            className={cn(
+              'flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium',
+              viewMode === 'merge'
+                ? 'border-neutral-900 bg-neutral-900 text-white dark:border-white dark:bg-white dark:text-neutral-900'
+                : 'border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900',
+            )}
+          >
+            <GitMerge className="h-3.5 w-3.5" />
+            {viewMode === 'merge' ? 'Back to diff' : 'Resolve conflicts'}
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-3 text-xs text-neutral-400">
           {shortSha(result.leftSha256) && <span title={result.leftSha256}>{leftLabel}: {shortSha(result.leftSha256)}</span>}
           {shortSha(result.rightSha256) && <span title={result.rightSha256}>{rightLabel}: {shortSha(result.rightSha256)}</span>}
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        {result.binary ? (
+      <div className={cn('min-h-0 flex-1', viewMode === 'merge' && canMerge ? 'overflow-hidden' : 'overflow-auto')}>
+        {viewMode === 'merge' && canMerge ? (
+          <MergeResolutionPanel comparisonId={comparisonId} resultKey={result.key} leftLabel={leftLabel} rightLabel={rightLabel} />
+        ) : result.binary ? (
           <BinaryDiffSummary result={result} leftLabel={leftLabel} rightLabel={rightLabel} comparisonId={comparisonId} />
         ) : isPermissionGridType(result.key.type) ? (
           <PermissionGrid entries={result.entries} selected={gridSelected} onToggle={toggle} onToggleMany={toggleMany} />
