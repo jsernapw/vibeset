@@ -9,6 +9,15 @@ export type JobType =
   | 'deploy'
   | 'validate'
   | 'analyze'
+  // Phase 3 Workstream B: populates `dependency_edges` for one org
+  // connection — Tooling API `MetadataComponentDependency` paging plus the
+  // Profile/PermissionSet/Layout supplement pass (see
+  // `@vibeset/core`'s `dependencies/` module). A job (not a plain
+  // mutation) because the Tooling API query can page through a large
+  // result set on a big org and the supplement pass materializes
+  // Profile/PermissionSet/Layout content — both are I/O-bound and worth
+  // reporting progress for, same reasoning as 'compare'.
+  | 'dependency-sync'
   // Interactive browser OAuth via `sf org login web`. A job rather than a
   // plain mutation because it blocks on a human completing a login in a
   // browser — minutes, not seconds. Held open as an HTTP request it exceeds

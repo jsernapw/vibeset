@@ -7,6 +7,7 @@ import { deployRouter } from './routers/deploy.js';
 import { historyRouter } from './routers/history.js';
 import { filtersRouter } from './routers/filters.js';
 import { mergeRouter } from './routers/merge.js';
+import { dependenciesRouter } from './routers/dependencies.js';
 
 const jobsRouter = router({
   enqueueDemo: publicProcedure
@@ -59,6 +60,7 @@ export const appRouter = router({
   history: historyRouter,
   filters: filtersRouter,
   merge: mergeRouter,
+  dependencies: dependenciesRouter,
 });
 
 export type AppRouter = typeof appRouter;

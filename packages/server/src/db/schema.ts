@@ -232,21 +232,81 @@ export const jobs = sqliteTable('jobs', {
   completedAt: text('completed_at'),
 });
 
-/** Component dependency graph edges (Tooling API `MetadataComponentDependency` + static analysis, Phase 3). */
+/**
+ * Component dependency graph edges (Phase 3 Workstream B). Populated by
+ * `dependencies.sync` from two provenance lanes — see
+ * `@vibeset/core`'s `dependencies/types.ts` `DependencyEdge` doc comment
+ * for the full reasoning:
+ *
+ *  - Tooling API `MetadataComponentDependency` rows (`source: 'tooling-api'`,
+ *    `authoritative: true`) — Salesforce's own, org-computed graph.
+ *  - VibeSet-derived edges backfilling known Tooling API coverage gaps
+ *    (`source: 'supplemented:profile-grant' | 'supplemented:permission-set-grant'
+ *    | 'supplemented:layout-field'`, `authoritative: false`), parsed from
+ *    Profile/PermissionSet grants and Layout field placements VibeSet
+ *    already retrieves.
+ *
+ * `authoritative` is denormalized from `source` for cheap filtering/
+ * display. CRITICAL: it is a marker of PROVENANCE for a PRESENT edge, never
+ * proof of absence — a component with zero matching rows here has "no
+ * recorded edge", not "confirmed no dependency" (see `KNOWN_COVERAGE_GAPS`
+ * in `@vibeset/core`, disclosed per-run in `dependencySyncRuns` below).
+ * Every sync fully replaces one connection's rows (delete-then-insert in one
+ * transaction — see `trpc/routers/dependencies.ts`) rather than upserting,
+ * since a stale edge (a reference that no longer exists) is exactly as
+ * dangerous as a missing one for the delete-safety use case this table
+ * exists for.
+ */
 export const dependencyEdges = sqliteTable(
   'dependency_edges',
   {
     id: text('id').primaryKey(),
     connectionId: text('connection_id').references(() => connections.id),
+    /** Which `dependency_sync_runs` row produced this edge — lets a row be traced back to its run's disclosed coverage gaps and namespace-filter settings. */
+    syncRunId: text('sync_run_id'),
     fromType: text('from_type').notNull(),
     fromFullName: text('from_full_name').notNull(),
     toType: text('to_type').notNull(),
     toFullName: text('to_full_name').notNull(),
-    source: text('source').notNull(), // 'tooling-api' | 'static'
+    source: text('source').notNull(), // 'tooling-api' | 'supplemented:profile-grant' | 'supplemented:permission-set-grant' | 'supplemented:layout-field'
+    authoritative: integer('authoritative', { mode: 'boolean' }).notNull(),
+    fromNamespace: text('from_namespace'),
+    toNamespace: text('to_namespace'),
     ...timestamps,
   },
-  (t) => [index('dependency_edges_from_idx').on(t.fromType, t.fromFullName)],
+  (t) => [
+    index('dependency_edges_from_idx').on(t.connectionId, t.fromType, t.fromFullName),
+    // Reverse lookup ("what depends on this") is the higher-stakes,
+    // delete-safety direction (see the Phase 3 task brief) and deserves its
+    // own index rather than a table scan — the forward index above can't
+    // serve a `WHERE toType = ? AND toFullName = ?` query.
+    index('dependency_edges_to_idx').on(t.connectionId, t.toType, t.toFullName),
+  ],
 );
+
+/**
+ * One run of `dependencies.sync` for a connection. Exists so "how fresh is
+ * this graph, and what did it not cover" is answerable without recomputing
+ * from `dependency_edges` — `knownGapsJson` is `KNOWN_COVERAGE_GAPS`
+ * (`@vibeset/core`) captured verbatim at sync time, so a caller reading an
+ * old run still sees exactly what gaps applied then, even if the list is
+ * later extended.
+ */
+export const dependencySyncRuns = sqliteTable('dependency_sync_runs', {
+  id: text('id').primaryKey(),
+  connectionId: text('connection_id').references(() => connections.id),
+  status: text('status').notNull().default('running'), // 'running' | 'succeeded' | 'failed'
+  jobId: text('job_id'),
+  orgEdgeCount: integer('org_edge_count').default(0),
+  supplementedEdgeCount: integer('supplemented_edge_count').default(0),
+  managedPackageEdgeCount: integer('managed_package_edge_count').default(0),
+  /** Namespace-filter settings this run applied, JSON `{excludeNamespaces?, excludeManagedPackages?}` — see `filterEdgesByNamespace` in `@vibeset/core`. */
+  filterJson: text('filter_json'),
+  knownGapsJson: text('known_gaps_json'),
+  errorsJson: text('errors_json'),
+  ...timestamps,
+  completedAt: text('completed_at'),
+});
 
 /** Freeform key/value app settings. */
 export const settings = sqliteTable('settings', {
