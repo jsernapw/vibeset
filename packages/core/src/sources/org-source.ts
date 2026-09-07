@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { AuthInfo, Connection } from '@salesforce/core';
@@ -12,6 +12,7 @@ import type {
   TypeFilter,
 } from '../types/metadata-source.js';
 import { planMaterializeChunks, type ChunkingOptions } from '../retrieval/chunking.js';
+import { toolingClientFromConnection, type ToolingQueryClient } from '../dependencies/tooling-query.js';
 import {
   NON_LISTABLE_SINGLETON_TYPES,
   STANDARD_VALUE_SET_TYPE,
@@ -192,6 +193,20 @@ export class OrgSource implements MetadataSource {
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
+  }
+
+  /**
+   * A `ToolingQueryClient` bound to this org's connection — Phase 3
+   * Workstream B's only reason to reach outside the `MetadataSource`
+   * interface: `MetadataComponentDependency` is queryable ONLY through the
+   * Tooling API, which `inventory()`/`materialize()` never touch. Reuses
+   * the exact same cached `Connection` (`getConnection()`, memoized on
+   * `connectionPromise`) those methods already use — never a second
+   * credential path, and never re-authenticates per call.
+   */
+  async toolingClient(): Promise<ToolingQueryClient> {
+    const conn = await this.getConnection();
+    return toolingClientFromConnection(conn);
   }
 
   /**
@@ -555,6 +570,13 @@ export class OrgSource implements MetadataSource {
         (component) => ({ type: component.type.name, fullName: component.fullName }),
       );
 
+      // See `fixDoubledMetaXmlSuffix`'s doc comment: a real, discovered
+      // bug in the retrieve+convert interaction for content-less XML
+      // types (Profile, PermissionSet, Layout, ...) that must be
+      // corrected before `walkDir` records the (currently unresolvable)
+      // filenames.
+      await fixDoubledMetaXmlSuffix(destDir);
+
       const files = new Map<string, string>();
       await walkDir(destDir, destDir, files);
 
@@ -723,6 +745,65 @@ function toInventoryEntry(p: FilePropertiesLike): ComponentInventoryEntry {
 
 async function mktempDir(prefix: string): Promise<string> {
   return mkdtemp(join(tmpdir(), prefix));
+}
+
+const META_XML_SUFFIX = '-meta.xml';
+const DOUBLED_META_XML_SUFFIX = META_XML_SUFFIX + META_XML_SUFFIX;
+
+/**
+ * REAL BUG, discovered by spot-checking `dependencies.sync` against ARM
+ * DEV/RCA DEV (Phase 3 Workstream B verification) and confirmed by
+ * inspecting SDR's `DefaultMetadataTransformer.getXmlDestination`
+ * (`@salesforce/source-deploy-retrieve/lib/src/convert/transformers/
+ * defaultMetadataTransformer.js`): for a content-LESS, single-file XML
+ * metadata type (`Profile`, `PermissionSet`, `Layout`, and any other type
+ * whose `SourceComponent` has no separate `.content` — most declarative
+ * metadata), the Metadata API's retrieve zip is unpacked by SDR with the
+ * source-format `<Name>.<suffix>-meta.xml` filename ALREADY on disk in the
+ * "metadata format" directory (confirmed directly: a raw, pre-conversion
+ * retrieve of `Profile` writes `RLM Portal Profile.profile-meta.xml`, not
+ * a bare `.profile` file). `MetadataConverter.convert(components,
+ * 'source', ...)` doesn't know that and unconditionally appends the same
+ * `-meta.xml` suffix again for this content-less case, producing
+ * `RLM Portal Profile.profile-meta.xml-meta.xml` — a filename SDR's own
+ * `MetadataResolver` cannot match to any registered type afterward, so
+ * every downstream reader of the materialized tree
+ * (`compare/content-reader.ts`'s `resolveComponentContents`, used by
+ * comparisons, `merge.resolve`, and this phase's dependency-edge
+ * supplementation) silently treats the component as retrieved-but-
+ * unreadable, exactly as if the retrieve had failed.
+ *
+ * This was never caught before Phase 3 Workstream B because Phase 1/2's
+ * real-org proof was ApexClass-only (see the plan's carried debt note:
+ * "only ApexClass was measured at scale — XML-heavy types (Profile,
+ * CustomObject, Layout) were not"). ApexClass has a separate `.cls`
+ * content file, so its `SourceComponent` takes `getXmlDestination`'s
+ * `else if (suffix)` branch (rewrite via a regex substitution, not a raw
+ * append) and never exhibits this.
+ *
+ * Fix: after conversion, walk the output directory and collapse any
+ * doubled `-meta.xml-meta.xml` suffix back to one, renaming the file in
+ * place. Purely corrective and narrowly conditioned on the exact doubled
+ * string — a type that never exhibits the quirk (the overwhelming
+ * majority, including every type this project's existing real-org proof
+ * already covers) is completely unaffected.
+ */
+export async function fixDoubledMetaXmlSuffix(dir: string): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const abs = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await fixDoubledMetaXmlSuffix(abs);
+    } else if (entry.name.endsWith(DOUBLED_META_XML_SUFFIX)) {
+      const fixedName = entry.name.slice(0, -META_XML_SUFFIX.length);
+      await rename(abs, join(dir, fixedName));
+    }
+  }
 }
 
 async function walkDir(root: string, dir: string, out: Map<string, string>): Promise<void> {

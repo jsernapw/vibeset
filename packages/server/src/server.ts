@@ -11,6 +11,7 @@ import { createInventoryJobHandler } from './trpc/routers/inventory.js';
 import { createLoginWebJobHandler } from './trpc/routers/connections.js';
 import { createCompareJobHandler } from './trpc/routers/comparisons.js';
 import { createDeployJobHandler } from './trpc/routers/deploy.js';
+import { createDependencySyncJobHandler } from './trpc/routers/dependencies.js';
 import authPlugin from './plugins/auth.js';
 import { registerWsRoutes } from './routes/ws.js';
 import { DrizzleSnapshotStore } from './store/drizzle-snapshot-store.js';
@@ -70,6 +71,7 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Starte
   // validation can never accidentally perform a real deploy.
   jobRunner.registerHandler('deploy', createDeployJobHandler({ db, snapshotStore }));
   jobRunner.registerHandler('validate', createDeployJobHandler({ db, snapshotStore }, { forceCheckOnly: true }));
+  jobRunner.registerHandler('dependency-sync', createDependencySyncJobHandler({ db }));
 
   // Resolved after listen() once we know the actual bound port (supports port:0).
   let allowedOrigins: string[] = [];
