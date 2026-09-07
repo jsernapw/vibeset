@@ -1,0 +1,8 @@
+[
+  {
+    "analyzerId": "stale/api-version-far-behind",
+    "severity": "info",
+    "key": { "type": "ApexClass", "fullName": "ChangePasswordController" },
+    "relatedKeys": null
+  }
+]
