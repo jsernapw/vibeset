@@ -1,0 +1,8 @@
+[
+  {
+    "analyzerId": "destructive/deleting-field-referenced-by-inpackage-layout",
+    "severity": "error",
+    "key": { "type": "CustomField", "fullName": "Account.Old__c" },
+    "relatedKeys": [{ "type": "Layout", "fullName": "Account-Account Layout" }]
+  }
+]

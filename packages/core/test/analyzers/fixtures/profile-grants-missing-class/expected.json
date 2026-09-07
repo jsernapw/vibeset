@@ -1,0 +1,8 @@
+[
+  {
+    "analyzerId": "permissions/grants-nonexistent-target",
+    "severity": "warning",
+    "key": { "type": "Profile", "fullName": "Admin" },
+    "relatedKeys": [{ "type": "ApexClass", "fullName": "MissingController" }]
+  }
+]

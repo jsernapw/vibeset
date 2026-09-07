@@ -1,0 +1,5 @@
+{
+  "existsInTarget": [
+    { "key": { "type": "ApexClass", "fullName": "MissingController" }, "exists": false }
+  ]
+}
