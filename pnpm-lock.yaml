@@ -118,6 +118,12 @@ importers:
       '@fastify/websocket':
         specifier: ^11.0.0
         version: 11.3.0
+      '@salesforce/core':
+        specifier: ^9.1.2
+        version: 9.1.2
+      '@salesforce/source-deploy-retrieve':
+        specifier: ^13.1.1
+        version: 13.1.1
       '@trpc/server':
         specifier: ^11.0.0
         version: 11.18.0(typescript@5.9.3)
@@ -149,12 +155,6 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
     devDependencies:
-      '@salesforce/core':
-        specifier: ^9.1.2
-        version: 9.1.2
-      '@salesforce/source-deploy-retrieve':
-        specifier: ^13.1.1
-        version: 13.1.1
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
