@@ -38,3 +38,19 @@ if (!('releasePointerCapture' in Element.prototype)) {
 if (!('scrollIntoView' in Element.prototype)) {
   Element.prototype.scrollIntoView = () => {};
 }
+
+// jsdom implements no `ResizeObserver` at all — `@xyflow/react`
+// (`components/dependencies/DependencyGraphView.tsx`) observes its
+// container's size to size the canvas, and throws a bare
+// `ReferenceError` under jsdom without this. A no-op stub is enough:
+// these tests assert on rendered node/edge content, never on
+// resize-driven behavior.
+if (!('ResizeObserver' in globalThis)) {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).ResizeObserver = ResizeObserverStub;
+}
