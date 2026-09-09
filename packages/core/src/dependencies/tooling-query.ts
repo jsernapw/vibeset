@@ -53,6 +53,27 @@ export function toolingClientFromConnection(connection: Connection): ToolingQuer
   };
 }
 
+/**
+ * Pages through an ARBITRARY Tooling API SOQL query via `query` + repeated
+ * `queryMore` until `done`, returning every record. Factored out of
+ * `queryOrgDependencyEdges` (which is `MetadataComponentDependency`-
+ * specific) so other Tooling-API-only reads that can legitimately return
+ * more than one page — `ApexClass`/`ApexTrigger`/`ApexCodeCoverageAggregate`
+ * lookups for `OrgSource.orgContext()` (Phase 3 Workstream C: the analyzer/
+ * dependency-graph join) chief among them — don't re-implement the same
+ * paging loop a third time.
+ */
+export async function queryAllToolingRecords<T>(client: ToolingQueryClient, soql: string): Promise<T[]> {
+  const records: T[] = [];
+  let page = await client.query<T>(soql);
+  records.push(...page.records);
+  while (!page.done && page.nextRecordsUrl) {
+    page = await client.queryMore<T>(page.nextRecordsUrl);
+    records.push(...page.records);
+  }
+  return records;
+}
+
 export interface QueryOrgDependencyEdgesOptions {
   /**
    * Restricts the query to edges whose FROM side is one of these metadata

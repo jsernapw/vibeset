@@ -4,7 +4,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RegistryAccess } from '@salesforce/source-deploy-retrieve';
 import { describe, expect, it } from 'vitest';
-import { cleanupSourceTree, decomposedChildTypeNames, resolveComponentContents } from '../../src/compare/content-reader.js';
+import {
+  cleanupSourceTree,
+  decomposedChildTypeNames,
+  resolveAnalyzerComponents,
+  resolveComponentContents,
+} from '../../src/compare/content-reader.js';
 import { componentKeyString } from '../../src/util/component-key.js';
 import type { SourceTree } from '../../src/types/metadata-source.js';
 
@@ -223,5 +228,116 @@ describe('resolveComponentContents — compose (decomposed CustomObject, real re
 
   it('decomposedChildTypeNames: undefined for a non-decomposed type (Profile — single complete file, nothing to compose)', () => {
     expect(decomposedChildTypeNames(new RegistryAccess(), 'Profile')).toBeUndefined();
+  });
+});
+
+/**
+ * `resolveAnalyzerComponents` is `resolveComponentContents`'s counterpart
+ * for `AnalysisContext.packageComponents` — same materialized-`SourceTree`
+ * resolution, but returning `Component` (`path` + `content` + `auxFiles`)
+ * instead of a bare content string, since analyzers can read a
+ * component's `-meta.xml` sidecar (the stale-API-version rule) or other
+ * bundle members, not just its primary body.
+ */
+describe('resolveAnalyzerComponents', () => {
+  async function writeApexClass(rootDir: string, name: string, body: string): Promise<SourceTree> {
+    const dir = join(rootDir, 'classes');
+    await mkdir(dir, { recursive: true });
+    const clsPath = join(dir, `${name}.cls`);
+    const metaPath = join(dir, `${name}.cls-meta.xml`);
+    await writeFile(clsPath, body);
+    await writeFile(
+      metaPath,
+      '<?xml version="1.0" encoding="UTF-8"?>\n<ApexClass xmlns="http://soap.sforce.com/2006/04/metadata"><apiVersion>58.0</apiVersion><status>Active</status></ApexClass>\n',
+    );
+    const files = new Map<string, string>([
+      [`classes/${name}.cls`, clsPath],
+      [`classes/${name}.cls-meta.xml`, metaPath],
+    ]);
+    return { sourceId: 'test', rootDir, files };
+  }
+
+  async function writeLayout(rootDir: string, objectApiName: string, layoutLabel: string): Promise<SourceTree> {
+    const dir = join(rootDir, 'layouts');
+    await mkdir(dir, { recursive: true });
+    const fullName = `${objectApiName}-${layoutLabel}`;
+    const layoutPath = join(dir, `${fullName}.layout-meta.xml`);
+    await writeFile(
+      layoutPath,
+      '<?xml version="1.0" encoding="UTF-8"?>\n<Layout xmlns="http://soap.sforce.com/2006/04/metadata"><showEmailCheckbox>false</showEmailCheckbox></Layout>\n',
+    );
+    const files = new Map<string, string>([[`layouts/${fullName}.layout-meta.xml`, layoutPath]]);
+    return { sourceId: 'test', rootDir, files };
+  }
+
+  it('resolves a text-body type (ApexClass) with the body as primary content and the -meta.xml sidecar as an auxFile', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibeset-analyzer-components-'));
+    try {
+      const tree = await writeApexClass(root, 'MyClass', 'public class MyClass {}');
+      const key = { type: 'ApexClass', fullName: 'MyClass' };
+
+      const { components, unresolved } = await resolveAnalyzerComponents(tree, [key], new RegistryAccess());
+
+      expect(unresolved).toEqual([]);
+      expect(components).toHaveLength(1);
+      const component = components[0]!;
+      expect(component.key).toEqual(key);
+      expect(component.content).toBe('public class MyClass {}');
+      expect(component.path).toMatch(/MyClass\.cls$/);
+      expect(component.auxFiles).toHaveLength(1);
+      expect(component.auxFiles![0]!.path).toMatch(/MyClass\.cls-meta\.xml$/);
+      expect(component.auxFiles![0]!.content).toContain('<apiVersion>58.0</apiVersion>');
+
+      await cleanupSourceTree(tree);
+    } finally {
+      await cleanupSourceTree({ sourceId: 'test', rootDir: root, files: new Map() });
+    }
+  });
+
+  it('resolves a plain XML type (Layout) with no auxFiles (single file, no sidecar)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibeset-analyzer-components-'));
+    try {
+      const tree = await writeLayout(root, 'Account', 'Account Layout');
+      const key = { type: 'Layout', fullName: 'Account-Account Layout' };
+
+      const { components, unresolved } = await resolveAnalyzerComponents(tree, [key], new RegistryAccess());
+
+      expect(unresolved).toEqual([]);
+      expect(components).toHaveLength(1);
+      expect(components[0]!.content).toContain('<showEmailCheckbox>false</showEmailCheckbox>');
+      expect(components[0]!.auxFiles).toBeUndefined();
+
+      await cleanupSourceTree(tree);
+    } finally {
+      await cleanupSourceTree({ sourceId: 'test', rootDir: root, files: new Map() });
+    }
+  });
+
+  it('reports a requested key that never resolved (missing/failed retrieve) via `unresolved`, not a thrown error or a silently shorter array', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibeset-analyzer-components-'));
+    try {
+      const tree = await writeApexClass(root, 'Present', 'public class Present {}');
+      const presentKey = { type: 'ApexClass', fullName: 'Present' };
+      const missingKey = { type: 'ApexClass', fullName: 'NeverRetrieved' };
+
+      const { components, unresolved } = await resolveAnalyzerComponents(tree, [presentKey, missingKey], new RegistryAccess());
+
+      expect(components.map((c) => c.key)).toEqual([presentKey]);
+      expect(unresolved).toEqual([missingKey]);
+
+      await cleanupSourceTree(tree);
+    } finally {
+      await cleanupSourceTree({ sourceId: 'test', rootDir: root, files: new Map() });
+    }
+  });
+
+  it('an empty keys array (or an empty tree) resolves to no components and every key marked unresolved', async () => {
+    const emptyTree: SourceTree = { sourceId: 'test', rootDir: '', files: new Map() };
+    const key = { type: 'ApexClass', fullName: 'Whatever' };
+
+    const result = await resolveAnalyzerComponents(emptyTree, [key], new RegistryAccess());
+
+    expect(result.components).toEqual([]);
+    expect(result.unresolved).toEqual([key]);
   });
 });

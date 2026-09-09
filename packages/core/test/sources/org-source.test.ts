@@ -630,3 +630,141 @@ describe('listAuthorizedOrgs', () => {
     expect(orgs[0]).toMatchObject({ username: 'dev@example.com', orgId: '00Dxx', alias: 'dev' });
   });
 });
+
+/**
+ * `orgContext()` builds `OrgContext` from four independent, read-only
+ * queries — see the method's own doc comment for why each is fetched
+ * independently and left `undefined` (never guessed) on its own failure.
+ * This fake `Connection` exposes exactly `query` (plain SOQL, for
+ * `Organization`), `tooling.query`/`tooling.queryMore` (paged Tooling API
+ * SOQL, for the other three), and `getApiVersion` — nothing else `OrgSource`
+ * touches for this method.
+ */
+function fakeOrgContextConnection(overrides: {
+  query?: (soql: string) => Promise<{ records: unknown[] }>;
+  toolingQuery?: Record<string, { records: unknown[]; done?: boolean; nextRecordsUrl?: string }>;
+  getApiVersion?: () => string;
+} = {}): Connection {
+  const toolingQuery = overrides.toolingQuery ?? {};
+  return {
+    getApiVersion: overrides.getApiVersion ?? (() => '62.0'),
+    query: overrides.query ?? (async () => ({ records: [] })),
+    tooling: {
+      query: async (soql: string) => {
+        const page = toolingQuery[soql];
+        if (!page) return { records: [], done: true };
+        return { records: page.records, done: page.done ?? true, nextRecordsUrl: page.nextRecordsUrl };
+      },
+      queryMore: async (url: string) => {
+        const page = Object.values(toolingQuery).find((p) => p.nextRecordsUrl === url);
+        if (!page) return { records: [], done: true };
+        return { records: page.records, done: true };
+      },
+    },
+  } as unknown as Connection;
+}
+
+describe('OrgSource.orgContext', () => {
+  it('builds a full OrgContext from Organization + ApexOrgWideCoverage + ApexClass/ApexTrigger + ApexCodeCoverageAggregate', async () => {
+    const connection = fakeOrgContextConnection({
+      query: async (soql) => {
+        expect(soql).toContain('FROM Organization');
+        return { records: [{ Id: '00Dxx0000012345', IsSandbox: false, OrganizationType: 'Developer Edition' }] };
+      },
+      toolingQuery: {
+        'SELECT PercentCovered FROM ApexOrgWideCoverage': { records: [{ PercentCovered: 42 }] },
+        'SELECT Id, Name FROM ApexClass': { records: [{ Id: '01p001', Name: 'MyClass' }] },
+        'SELECT Id, Name FROM ApexTrigger': { records: [{ Id: '01q001', Name: 'MyTrigger' }] },
+        'SELECT ApexClassOrTriggerId, NumLinesCovered, NumLinesUncovered FROM ApexCodeCoverageAggregate': {
+          records: [{ ApexClassOrTriggerId: '01p001', NumLinesCovered: 8, NumLinesUncovered: 2 }],
+        },
+      },
+    });
+    const source = new OrgSource('org-1', 'ARM DEV', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+    const context = await source.orgContext();
+
+    expect(context).toMatchObject({
+      orgId: '00Dxx0000012345',
+      label: 'ARM DEV',
+      organizationType: 'Developer Edition',
+      isSandbox: false,
+      orgWideCoveragePercent: 42,
+      totalApexClassCount: 1,
+      totalApexTriggerCount: 1,
+      currentApiVersion: '62.0',
+    });
+    expect(context.apexCoverage?.get('MyClass')).toEqual({ percentCovered: 80, linesCovered: 8, linesUncovered: 2 });
+  });
+
+  it('an org that has never computed ApexOrgWideCoverage (zero rows) leaves orgWideCoveragePercent undefined, never 0', async () => {
+    const connection = fakeOrgContextConnection({
+      query: async () => ({ records: [{ Id: '00Dxx', IsSandbox: true, OrganizationType: 'Developer Edition' }] }),
+      toolingQuery: {}, // every Tooling query returns zero rows
+    });
+    const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+    const context = await source.orgContext();
+
+    expect(context.orgWideCoveragePercent).toBeUndefined();
+    expect(context.totalApexClassCount).toBe(0);
+  });
+
+  it('a failing Organization query leaves orgId/isSandbox/organizationType undefined but does not fail the whole call — other fields still populate', async () => {
+    const connection = fakeOrgContextConnection({
+      query: async () => {
+        throw new Error('simulated INVALID_TYPE fault');
+      },
+      toolingQuery: {
+        'SELECT PercentCovered FROM ApexOrgWideCoverage': { records: [{ PercentCovered: 90 }] },
+      },
+    });
+    const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+    const context = await source.orgContext();
+
+    expect(context.orgId).toBeUndefined();
+    expect(context.isSandbox).toBeUndefined();
+    expect(context.organizationType).toBeUndefined();
+    expect(context.orgWideCoveragePercent).toBe(90); // independent query, unaffected by the Organization failure
+    expect(context.currentApiVersion).toBe('62.0'); // never touches a query at all
+  });
+
+  it('a failing Tooling query (ApexClass/ApexTrigger/ApexCodeCoverageAggregate) leaves those fields undefined without throwing', async () => {
+    const connection = fakeOrgContextConnection({
+      query: async () => ({ records: [{ Id: '00Dxx', IsSandbox: false, OrganizationType: 'Production' }] }),
+    });
+    // Override tooling.query to throw for the ApexClass query specifically.
+    (connection as unknown as { tooling: { query: unknown } }).tooling.query = async (soql: string) => {
+      if (soql.includes('ApexClass')) throw new Error('simulated permission error');
+      return { records: [], done: true };
+    };
+    const source = new OrgSource('org-1', 'Dev Org', { username: 'dev@example.com' }, { getConnection: async () => connection });
+
+    const context = await source.orgContext();
+
+    expect(context.totalApexClassCount).toBeUndefined();
+    expect(context.totalApexTriggerCount).toBeUndefined();
+    expect(context.apexCoverage).toBeUndefined();
+    expect(context.isSandbox).toBe(false); // independent query, unaffected
+  });
+
+  it('reports failures via deps.onWarning rather than swallowing them silently', async () => {
+    const connection = fakeOrgContextConnection({
+      query: async () => {
+        throw new Error('simulated fault');
+      },
+    });
+    const warnings: string[] = [];
+    const source = new OrgSource(
+      'org-1',
+      'Dev Org',
+      { username: 'dev@example.com' },
+      { getConnection: async () => connection, onWarning: (msg) => warnings.push(msg) },
+    );
+
+    await source.orgContext();
+
+    expect(warnings.some((w) => w.includes('Organization'))).toBe(true);
+  });
+});

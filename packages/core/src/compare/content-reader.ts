@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MetadataConverter, MetadataResolver, RegistryAccess, type SourceComponent } from '@salesforce/source-deploy-retrieve';
 import type { ComponentKey, SourceTree } from '../types/metadata-source.js';
+import type { Component, ComponentFile } from '../types/analyzer.js';
 import { TEXT_BODY_TYPES } from '../diff/dispatch.js';
-import { flattenComponents } from '../sources/flatten-components.js';
+import { componentFiles, flattenComponents } from '../sources/flatten-components.js';
 import { componentKeyString } from '../util/component-key.js';
 import { BINARY_BODY_TYPES, encodeBinaryContent } from '../util/binary-content.js';
 
@@ -122,6 +123,103 @@ export async function resolveComponentContents(
   }
 
   return out;
+}
+
+export interface ResolveAnalyzerComponentsResult {
+  readonly components: Component[];
+  /** Keys that did not resolve (missing/failed retrieve) — same "treat as absent" convention `resolveComponentContents` uses, but surfaced explicitly here since a caller feeding `AnalysisContext.packageComponents` needs to know when a requested component silently dropped out rather than just getting a shorter array back. */
+  readonly unresolved: ComponentKey[];
+}
+
+/**
+ * The `AnalysisContext.packageComponents` counterpart to
+ * `resolveComponentContents` above — same materialized-`SourceTree`-to-
+ * component-content bridge, but producing the richer `Component` shape
+ * (`types/analyzer.ts`) analyzers need: `path` + primary `content` PLUS
+ * `auxFiles` for every other file real retrieval materializes alongside
+ * it (an ApexClass/ApexTrigger's `-meta.xml` sidecar, an LWC/Aura bundle's
+ * remaining members). Deliberately a separate function rather than an
+ * options flag on `resolveComponentContents`: that function's callers
+ * (the differ, `merge.resolve`) only ever want ONE string per key and
+ * have no use for aux files, so bolting `Component`'s shape onto it would
+ * make every existing caller carry a type they don't need.
+ *
+ * Does NOT support `{ compose: true }` — none of Cassia's shipped
+ * analyzers operate on a composed decomposed-parent document (they read
+ * `Layout`/`ValidationRule`/`CustomField`/`Flow`/`QuickAction`/`Profile`/
+ * `PermissionSet` bodies directly, none of which are themselves decomposed
+ * parents), so that path is left unimplemented here rather than copied
+ * speculatively — add it if a future analyzer needs a composed
+ * `CustomObject` document.
+ */
+export async function resolveAnalyzerComponents(
+  tree: SourceTree,
+  keys: readonly ComponentKey[],
+  registry: RegistryAccess,
+): Promise<ResolveAnalyzerComponentsResult> {
+  if (tree.rootDir === '' || keys.length === 0) return { components: [], unresolved: [...keys] };
+
+  const resolver = new MetadataResolver(registry);
+  const roots = resolver.getComponentsFromPath(tree.rootDir);
+  const flat = flattenComponents(roots);
+  const byKey = new Map<string, SourceComponent>();
+  for (const c of flat) {
+    byKey.set(componentKeyString({ type: c.type.name, fullName: c.fullName }), c);
+  }
+
+  const components: Component[] = [];
+  const unresolved: ComponentKey[] = [];
+
+  for (const key of keys) {
+    const component = byKey.get(componentKeyString(key));
+    if (!component) {
+      unresolved.push(key);
+      continue;
+    }
+
+    if (BINARY_BODY_TYPES.has(key.type)) {
+      const encoded = await readBinaryComponentContent(component);
+      if (encoded === undefined) {
+        unresolved.push(key);
+        continue;
+      }
+      components.push({ key, path: component.content ?? component.xml ?? '', content: encoded });
+      continue;
+    }
+
+    const primaryPath = TEXT_BODY_TYPES.has(key.type) ? component.content : component.xml;
+    if (!primaryPath) {
+      unresolved.push(key);
+      continue;
+    }
+
+    let primaryContent: string;
+    try {
+      primaryContent = await readFile(primaryPath, 'utf8');
+    } catch {
+      unresolved.push(key); // listed by SDR but unreadable (race, symlink) — same convention as resolveComponentContents
+      continue;
+    }
+
+    const auxFiles: ComponentFile[] = [];
+    for (const filePath of componentFiles(component)) {
+      if (filePath === primaryPath) continue;
+      try {
+        auxFiles.push({ path: filePath, content: await readFile(filePath, 'utf8') });
+      } catch {
+        // A bundle member/sidecar that fails to read is dropped, not fatal — the primary file is still usable.
+      }
+    }
+
+    components.push({
+      key,
+      path: primaryPath,
+      content: primaryContent,
+      auxFiles: auxFiles.length > 0 ? auxFiles : undefined,
+    });
+  }
+
+  return { components, unresolved };
 }
 
 /**
