@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   filterEdgesByNamespace,
+  queryAllToolingRecords,
   queryOrgDependencyEdges,
   type MetadataComponentDependencyRecord,
   type ToolingQueryClient,
@@ -161,5 +162,49 @@ describe('filterEdgesByNamespace', () => {
   it('is a no-op when no exclusion options are given', () => {
     const result = filterEdgesByNamespace([namespaced, plain, mixed], {});
     expect(result).toEqual([namespaced, plain, mixed]);
+  });
+});
+
+describe('queryAllToolingRecords', () => {
+  it('returns every record from a single-page result', async () => {
+    const client: ToolingQueryClient = {
+      query: async () => ({ records: [{ Id: '1' }, { Id: '2' }], done: true }),
+      queryMore: async () => {
+        throw new Error('should not be called');
+      },
+    };
+
+    const records = await queryAllToolingRecords<{ Id: string }>(client, 'SELECT Id FROM ApexClass');
+
+    expect(records).toEqual([{ Id: '1' }, { Id: '2' }]);
+  });
+
+  it('pages via queryMore until done, accumulating records across every page (the same paging OrgSource.orgContext relies on for ApexClass/ApexTrigger/ApexCodeCoverageAggregate)', async () => {
+    const pages: Record<string, ToolingQueryPage<{ Id: string }>> = {
+      first: { records: [{ Id: '1' }], done: false, nextRecordsUrl: 'page2' },
+      page2: { records: [{ Id: '2' }], done: false, nextRecordsUrl: 'page3' },
+      page3: { records: [{ Id: '3' }], done: true },
+    };
+    const client: ToolingQueryClient = {
+      query: async () => pages.first!,
+      queryMore: async (url: string) => pages[url]!,
+    };
+
+    const records = await queryAllToolingRecords<{ Id: string }>(client, 'SELECT Id FROM ApexClass');
+
+    expect(records.map((r) => r.Id)).toEqual(['1', '2', '3']);
+  });
+
+  it('returns an empty array for a zero-row result (a real, valid state — not an error)', async () => {
+    const client: ToolingQueryClient = {
+      query: async () => ({ records: [], done: true }),
+      queryMore: async () => {
+        throw new Error('should not be called');
+      },
+    };
+
+    const records = await queryAllToolingRecords(client, 'SELECT PercentCovered FROM ApexOrgWideCoverage');
+
+    expect(records).toEqual([]);
   });
 });

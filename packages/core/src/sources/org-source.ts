@@ -11,8 +11,9 @@ import type {
   SourceTree,
   TypeFilter,
 } from '../types/metadata-source.js';
+import type { ApexCoverageEntry, OrgContext } from '../types/analyzer.js';
 import { planMaterializeChunks, type ChunkingOptions } from '../retrieval/chunking.js';
-import { toolingClientFromConnection, type ToolingQueryClient } from '../dependencies/tooling-query.js';
+import { queryAllToolingRecords, toolingClientFromConnection, type ToolingQueryClient } from '../dependencies/tooling-query.js';
 import {
   NON_LISTABLE_SINGLETON_TYPES,
   STANDARD_VALUE_SET_TYPE,
@@ -207,6 +208,120 @@ export class OrgSource implements MetadataSource {
   async toolingClient(): Promise<ToolingQueryClient> {
     const conn = await this.getConnection();
     return toolingClientFromConnection(conn);
+  }
+
+  /**
+   * Builds the `OrgContext` (`types/analyzer.ts`) the flagship
+   * `coverage/production-run-local-tests-gate` analyzer — and anything
+   * else keying off org type/coverage — needs, from read-only Tooling/
+   * SOQL queries against THIS org. Never guessed, never defaulted: every
+   * field is fetched independently and left `undefined` on its own
+   * failure (an org that has never computed `ApexOrgWideCoverage`, a
+   * Tooling permission gap, ...) rather than failing the whole context —
+   * matching `OrgContext`'s own contract that a missing field means
+   * "unknown", never a silently-substituted safe value.
+   *
+   *  - `Organization.IsSandbox`/`OrganizationType` via the plain (non-
+   *    Tooling) Query resource — `Organization` is an ordinary sObject,
+   *    not Tooling-only.
+   *  - `ApexOrgWideCoverage.PercentCovered` via the Tooling API (Tooling-
+   *    API-only object; zero rows is a real, valid state — an org that
+   *    hasn't run coverage-computing tests yet — not an error).
+   *  - `ApexClass`/`ApexTrigger` id->name + counts, and
+   *    `ApexCodeCoverageAggregate` per-class/trigger coverage, joined
+   *    client-side (the aggregate's `ApexClassOrTriggerId` is a polymorphic
+   *    lookup the Tooling API doesn't let you resolve to a name inline).
+   *  - `currentApiVersion` is `Connection.getApiVersion()` — the same value
+   *    `inventory()` already uses for its own `listMetadata` calls, i.e.
+   *    the API version this connection actually negotiated with the org,
+   *    not a VibeSet-invented notion of "current".
+   */
+  async orgContext(): Promise<OrgContext> {
+    const conn = await this.getConnection();
+    const tooling = toolingClientFromConnection(conn);
+    const warn = (what: string, err: unknown): void =>
+      this.deps.onWarning?.(
+        `OrgSource.orgContext: failed to fetch ${what} — that field will be "unknown", not defaulted (${err instanceof Error ? err.message : String(err)}).`,
+      );
+
+    let orgId: string | undefined;
+    let organizationType: string | undefined;
+    let isSandbox: boolean | undefined;
+    try {
+      const result = await conn.query<{ Id: string; IsSandbox: boolean; OrganizationType: string }>(
+        'SELECT Id, IsSandbox, OrganizationType FROM Organization',
+      );
+      const row = result.records[0];
+      if (row) {
+        orgId = row.Id;
+        organizationType = row.OrganizationType;
+        isSandbox = row.IsSandbox;
+      }
+    } catch (err) {
+      warn('Organization.IsSandbox/OrganizationType', err);
+    }
+
+    let orgWideCoveragePercent: number | undefined;
+    try {
+      const rows = await queryAllToolingRecords<{ PercentCovered: number }>(
+        tooling,
+        'SELECT PercentCovered FROM ApexOrgWideCoverage',
+      );
+      orgWideCoveragePercent = rows[0]?.PercentCovered;
+    } catch (err) {
+      warn('ApexOrgWideCoverage.PercentCovered', err);
+    }
+
+    let totalApexClassCount: number | undefined;
+    let totalApexTriggerCount: number | undefined;
+    let apexCoverage: Map<string, ApexCoverageEntry> | undefined;
+    try {
+      const [classRows, triggerRows] = await Promise.all([
+        queryAllToolingRecords<{ Id: string; Name: string }>(tooling, 'SELECT Id, Name FROM ApexClass'),
+        queryAllToolingRecords<{ Id: string; Name: string }>(tooling, 'SELECT Id, Name FROM ApexTrigger'),
+      ]);
+      totalApexClassCount = classRows.length;
+      totalApexTriggerCount = triggerRows.length;
+
+      const idToName = new Map<string, string>();
+      for (const r of classRows) idToName.set(r.Id, r.Name);
+      for (const r of triggerRows) idToName.set(r.Id, r.Name);
+
+      const coverageRows = await queryAllToolingRecords<{
+        ApexClassOrTriggerId: string;
+        NumLinesCovered: number;
+        NumLinesUncovered: number;
+      }>(tooling, 'SELECT ApexClassOrTriggerId, NumLinesCovered, NumLinesUncovered FROM ApexCodeCoverageAggregate');
+
+      const coverage = new Map<string, ApexCoverageEntry>();
+      for (const row of coverageRows) {
+        const name = idToName.get(row.ApexClassOrTriggerId);
+        if (!name) continue; // aggregate row for a class/trigger we couldn't resolve a name for — dropped, not guessed.
+        const covered = row.NumLinesCovered ?? 0;
+        const uncovered = row.NumLinesUncovered ?? 0;
+        const total = covered + uncovered;
+        coverage.set(name, {
+          percentCovered: total > 0 ? (covered / total) * 100 : 0,
+          linesCovered: covered,
+          linesUncovered: uncovered,
+        });
+      }
+      apexCoverage = coverage;
+    } catch (err) {
+      warn('ApexClass/ApexTrigger/ApexCodeCoverageAggregate', err);
+    }
+
+    return {
+      orgId,
+      label: this.label,
+      organizationType,
+      isSandbox,
+      orgWideCoveragePercent,
+      totalApexClassCount,
+      totalApexTriggerCount,
+      apexCoverage,
+      currentApiVersion: conn.getApiVersion(),
+    };
   }
 
   /**
