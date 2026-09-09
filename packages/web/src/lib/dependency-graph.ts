@@ -1,5 +1,23 @@
 import type { ComponentKey, DependencyEdge } from '@vibeset/core';
-import { componentKeyString } from '@vibeset/core';
+
+/**
+ * Local copy of `@vibeset/core`'s `componentKeyString` (`type#fullName`) —
+ * deliberately NOT imported from `core` at runtime. `core`'s `dist/index.js`
+ * is one rolled-up bundle (tsdown), and every other `@vibeset/core` import
+ * in `packages/web` is `import type` (erased at compile time); this module
+ * would be the first to pull a real VALUE out of it. Doing so drags the
+ * whole bundle — including Node-only code (`node:fs/promises`'s `mkdtemp`,
+ * used by `store/`'s temp-dir handling) — into Vite's browser build, which
+ * fails outright (`"mkdtemp" is not exported by "__vite-browser-external"`).
+ * Confirmed by reproducing that exact build failure before extracting this
+ * copy. Only used here as a local Map/render key, never sent to the
+ * server (routes send structured `{type, fullName}` objects), so an exact
+ * format match with `core`'s own key isn't required — just internal
+ * consistency within this module.
+ */
+export function componentKeyString(key: ComponentKey): string {
+  return `${key.type}#${key.fullName}`;
+}
 
 /**
  * The shape `dependencies.impact` (packages/server/src/trpc/routers/

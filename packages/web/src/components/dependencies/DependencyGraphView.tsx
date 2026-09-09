@@ -13,7 +13,6 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { ComponentKey } from '@vibeset/core';
-import { componentKeyString } from '@vibeset/core';
 import { Crosshair } from 'lucide-react';
 import type { GraphEdgeModel, GraphModel, GraphNodeModel } from '@/lib/dependency-graph';
 import { GRAPH_NODE_HEIGHT, GRAPH_NODE_WIDTH, layoutGraph } from '@/lib/elk-layout';

@@ -1,11 +1,10 @@
 import { ArrowRight, Crosshair } from 'lucide-react';
 import type { ComponentKey } from '@vibeset/core';
-import { componentKeyString } from '@vibeset/core';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ProvenanceBadge } from './ProvenanceBadge';
-import type { ImpactNodeLike } from '@/lib/dependency-graph';
+import { componentKeyString, type ImpactNodeLike } from '@/lib/dependency-graph';
 
 export interface ImpactListProps {
   readonly nodes: readonly ImpactNodeLike[];
