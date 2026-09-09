@@ -53,7 +53,17 @@ export function DependenciesPage() {
         <CardContent className="flex flex-wrap items-end gap-4 pt-6">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="dep-connection">Connection</Label>
-            <Select value={connectionId} onValueChange={(v) => { setConnectionId(v); setFocus(undefined); }}>
+            {/*
+              `value` defaults to `''` rather than leaving it `undefined` on
+              first render — Radix's `Select` is uncontrolled the instant
+              `value` is `undefined` and controlled the instant it becomes a
+              string, and flipping between the two logs React's "changing
+              from uncontrolled to controlled" warning (confirmed in this
+              session's console). Same fix as `SourceTargetPicker.tsx`'s
+              `SourcePicker`/`TargetPicker`; `''` is already treated as
+              "nothing selected" here, same as `undefined`.
+            */}
+            <Select value={connectionId ?? ''} onValueChange={(v) => { setConnectionId(v); setFocus(undefined); }}>
               <SelectTrigger id="dep-connection" className="w-56">
                 <SelectValue placeholder="Choose an org" />
               </SelectTrigger>
